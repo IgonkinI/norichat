@@ -37,7 +37,7 @@ int main(int argc, char* argv[]) {
     static lws_protocols protocols[] = {
         api::protocol,
         ws::protocol,
-        { nullptr, nullptr, 0, 0 }
+        LWS_PROTOCOL_LIST_TERM
     };
 
     // ── lws context ───────────────────────────────────────────────────────────

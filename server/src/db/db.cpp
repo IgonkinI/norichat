@@ -2,6 +2,7 @@
 #include "../../../shared/protocol/messages.h"
 
 #include <sqlite3.h>
+#include <algorithm>
 #include <cstdio>
 #include <cstring>
 #include <ctime>

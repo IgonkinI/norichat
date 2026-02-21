@@ -61,7 +61,7 @@ static void handle_channel_join(lws* wsi, ws::Session& session, const json& msg)
     session.subscribed_channels.insert(channel_id);
 }
 
-static void handle_channel_leave(lws* wsi, ws::Session& session, const json& msg) {
+static void handle_channel_leave(lws* /*wsi*/, ws::Session& session, const json& msg) {
     int channel_id = msg.value("channel_id", 0);
     session.subscribed_channels.erase(channel_id);
 }
