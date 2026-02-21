@@ -21,4 +21,7 @@ std::optional<int> validate_jwt(const std::string& token);
 // Returns the raw token string, or empty if malformed.
 std::string bearer_token(const std::string& header);
 
+// Set the JWT signing secret at startup (before any tokens are issued).
+void set_secret(std::string secret);
+
 } // namespace auth

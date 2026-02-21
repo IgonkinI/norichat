@@ -14,8 +14,12 @@
 
 // ─── Config ───────────────────────────────────────────────────────────────────
 
-static const char* JWT_SECRET  = "norichat_secret_CHANGE_ME_in_production";
-static const int   JWT_TTL_SEC = 86400 * 7; // 7 days
+static std::string g_jwt_secret = "norichat_secret_CHANGE_ME_in_production";
+static const int   JWT_TTL_SEC  = 86400 * 7; // 7 days
+
+void auth::set_secret(std::string secret) {
+    g_jwt_secret = std::move(secret);
+}
 
 // ─── Base64url ────────────────────────────────────────────────────────────────
 
@@ -146,7 +150,7 @@ std::string auth::generate_jwt(int user_id, const std::string& username) {
 
     // Signature
     const std::string signing_input = header_b64 + "." + payload_b64;
-    const std::string sig_b64       = hmac_sha256_b64url(signing_input, JWT_SECRET);
+    const std::string sig_b64       = hmac_sha256_b64url(signing_input, g_jwt_secret);
 
     return signing_input + "." + sig_b64;
 }
@@ -164,7 +168,7 @@ std::optional<int> auth::validate_jwt(const std::string& token) {
 
     // Verify signature
     const std::string signing_input  = header_b64 + "." + payload_b64;
-    const std::string expected_sig   = hmac_sha256_b64url(signing_input, JWT_SECRET);
+    const std::string expected_sig   = hmac_sha256_b64url(signing_input, g_jwt_secret);
     if (sig_b64 != expected_sig) return std::nullopt;
 
     // Decode and parse payload

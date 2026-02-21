@@ -1,11 +1,13 @@
 #include "api/api.h"
 #include "ws/ws.h"
 #include "db/db.h"
+#include "auth/auth.h"
 
 #include <libwebsockets.h>
 #include <cstdio>
 #include <cstring>
 #include <csignal>
+#include <cstdlib>
 
 // ─── Globals ──────────────────────────────────────────────────────────────────
 
@@ -16,12 +18,28 @@ static void sigint_handler(int) { g_interrupted = 1; }
 // ─── Entry point ──────────────────────────────────────────────────────────────
 
 int main(int argc, char* argv[]) {
-    const char* db_path  = "norichat.db";
-    int         port     = 8080;
+    const char* db_path    = "norichat.db";
+    const char* secret_arg = nullptr;
+    int         port       = 8080;
 
     for (int i = 1; i < argc; i++) {
-        if (strcmp(argv[i], "--db") == 0 && i + 1 < argc)     db_path = argv[++i];
-        if (strcmp(argv[i], "--port") == 0 && i + 1 < argc)   port    = atoi(argv[++i]);
+        if (strcmp(argv[i], "--db")     == 0 && i + 1 < argc) db_path    = argv[++i];
+        if (strcmp(argv[i], "--port")   == 0 && i + 1 < argc) port       = atoi(argv[++i]);
+        if (strcmp(argv[i], "--secret") == 0 && i + 1 < argc) secret_arg = argv[++i];
+    }
+
+    // ── JWT secret ────────────────────────────────────────────────────────────
+    if (secret_arg) {
+        auth::set_secret(secret_arg);
+        fprintf(stdout, "[main] JWT secret loaded from --secret flag\n");
+    } else if (const char* env = getenv("NORICHAT_JWT_SECRET")) {
+        auth::set_secret(env);
+        fprintf(stdout, "[main] JWT secret loaded from NORICHAT_JWT_SECRET env var\n");
+    } else {
+        fprintf(stderr,
+                "[main] WARNING: JWT secret not configured!\n"
+                "[main] WARNING: Use --secret <value> or set NORICHAT_JWT_SECRET.\n"
+                "[main] WARNING: Running with insecure default — DO NOT use in production.\n");
     }
 
     // ── Database ──────────────────────────────────────────────────────────────
