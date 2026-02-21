@@ -94,17 +94,30 @@ FetchContent_Declare(
     GIT_TAG        v4.3.3
     GIT_SHALLOW    TRUE
 )
-FetchContent_MakeAvailable(libwebsockets)
+## Populate the FetchContent sources so we can set directory-level
+## compile options before the libwebsockets CMake runs. This ensures
+## suppression applies to the C files (client-http.c) which would
+## otherwise be compiled with -Werror and fail on unused-label.
+FetchContent_GetProperties(libwebsockets)
+if (NOT libwebsockets_POPULATED)
+    FetchContent_Populate(libwebsockets)
+endif()
 
-# Suppress warnings in libwebsockets v4.3.3: client-http.c has an unused label
-# 'hs2' that trips -Werror on GCC/Clang and C2220 on MSVC.
-if (TARGET websockets_static)
-    if (MSVC)
-        target_compile_options(websockets_static PRIVATE /W0)
-    elseif (CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
-        target_compile_options(websockets_static PRIVATE -w)
+## Instead of trying to set directory-level properties (which can fail
+## if the directory isn't processed yet), patch the single offending C
+## source to prepend pragmas that disable the unused-label warning.
+set(_lws_client_http "${libwebsockets_SOURCE_DIR}/lib/roles/http/client/client-http.c")
+if (EXISTS ${_lws_client_http})
+    file(READ ${_lws_client_http} _lws_client_http_content)
+    string(FIND "${_lws_client_http_content}" "NORICHAT_LWS_WARNING_SUPPRESSED" _lws_found)
+    if (_lws_found EQUAL -1)
+        set(_lws_pragmas "/* NORICHAT_LWS_WARNING_SUPPRESSED */\n#if defined(_MSC_VER)\n#pragma warning(disable:4102)\n#elif defined(__clang__) || defined(__GNUC__)\n#pragma GCC diagnostic ignored \"-Wunused-label\"\n#endif\n\n")
+        file(WRITE ${_lws_client_http} "${_lws_pragmas}${_lws_client_http_content}")
     endif()
 endif()
+
+# Now add the libwebsockets subdirectory so it is built as part of this project.
+add_subdirectory(${libwebsockets_SOURCE_DIR} ${libwebsockets_BINARY_DIR})
 
 # ─── Shared protocol include ──────────────────────────────────────────────────
 set(SHARED_INCLUDE_DIR ${CMAKE_CURRENT_SOURCE_DIR}/../shared)
@@ -131,7 +144,7 @@ target_include_directories(norichat_client PRIVATE
 target_link_libraries(norichat_client PRIVATE
     imgui_lib
     nlohmann_json::nlohmann_json
-    websockets_static
+    $<IF:$<TARGET_EXISTS:websockets_static>,websockets_static,websockets>
     CURL::libcurl
     OpenGL::GL
 )
