@@ -51,22 +51,74 @@ void LoginScreen::on_auth_success(AppState& state, HttpClient& http,
     // Load initial server list
     load_servers(state, http);
 
-    // Select first server and load its channels
+    // Select first server and load its channels + members
     if (!state.servers.empty()) {
         state.selected_server_id = state.servers[0].id;
 
-        auto resp = http.get("/api/channels?server_id=" +
-                             std::to_string(state.selected_server_id),
-                             state.auth_token);
-        if (resp && resp->status_code == 200) {
+        // Load channels
+        auto ch_resp = http.get("/api/channels?server_id=" +
+                                std::to_string(state.selected_server_id),
+                                state.auth_token);
+        if (ch_resp && ch_resp->status_code == 200) {
             try {
-                auto arr = json::parse(resp->body);
+                auto arr = json::parse(ch_resp->body);
                 state.channels.clear();
                 for (auto& o : arr)
                     state.channels.push_back({o["id"].get<int>(),
                                               o["server_id"].get<int>(),
                                               o["name"].get<std::string>(),
                                               o["type"].get<std::string>()});
+            } catch (...) {}
+        }
+
+        // Auto-join first text channel
+        for (auto& ch : state.channels) {
+            if (ch.server_id == state.selected_server_id) {
+                state.selected_channel_id = ch.id;
+                json join;
+                join["op"]         = "CHANNEL_JOIN";
+                join["channel_id"] = ch.id;
+                ws.send(join.dump());
+
+                // Load message history
+                auto msg_resp = http.get("/api/messages?channel_id=" +
+                                         std::to_string(ch.id) + "&limit=50",
+                                         state.auth_token);
+                if (msg_resp && msg_resp->status_code == 200) {
+                    try {
+                        auto arr = json::parse(msg_resp->body);
+                        state.messages.clear();
+                        for (auto& o : arr) {
+                            MessageInfo m;
+                            m.id         = o.value("id", 0);
+                            m.channel_id = o.value("channel_id", 0);
+                            m.author     = o.value("author", "?");
+                            m.content    = o.value("content", "");
+                            m.ts         = o.value("ts", (int64_t)0);
+                            state.messages.push_back(m);
+                        }
+                        state.scroll_to_bottom = true;
+                    } catch (...) {}
+                }
+                break; // only join the first channel
+            }
+        }
+
+        // Load server members
+        auto mem_resp = http.get("/api/members?server_id=" +
+                                  std::to_string(state.selected_server_id),
+                                  state.auth_token);
+        if (mem_resp && mem_resp->status_code == 200) {
+            try {
+                auto arr = json::parse(mem_resp->body);
+                state.members.clear();
+                for (auto& o : arr) {
+                    MemberInfo m;
+                    m.id       = o.value("id", 0);
+                    m.username = o.value("username", "?");
+                    m.online   = (m.id == state.user_id);
+                    state.members.push_back(m);
+                }
             } catch (...) {}
         }
     }

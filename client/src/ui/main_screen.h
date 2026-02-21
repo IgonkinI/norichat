@@ -15,5 +15,7 @@ private:
     void render_sidebar(AppState& state, HttpClient& http, WsClient& ws);
     void render_messages(AppState& state);
     void render_input(AppState& state, WsClient& ws);
+    void render_members(AppState& state);
     void load_messages(AppState& state, HttpClient& http, int channel_id);
+    void load_members(AppState& state, HttpClient& http, int server_id);
 };

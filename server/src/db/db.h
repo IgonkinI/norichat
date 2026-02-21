@@ -35,6 +35,11 @@ struct Message {
     int64_t     ts          = 0;
 };
 
+struct Member {
+    int         id       = 0;
+    std::string username;
+};
+
 // ─── DB API ───────────────────────────────────────────────────────────────────
 namespace db {
 
@@ -68,5 +73,6 @@ std::vector<Message> get_messages(int channel_id, int limit);
 // Memberships
 bool add_membership(int user_id, int server_id);
 bool has_membership(int user_id, int server_id);
+std::vector<Member> get_server_members(int server_id);
 
 } // namespace db

@@ -117,6 +117,9 @@ static int handle_login(lws* wsi, api::HttpSession* s) {
     if (!user || !auth::verify_password(password, user->password_hash))
         return send_error_json(wsi, 401, "invalid credentials");
 
+    // Ensure membership in default server (idempotent – INSERT OR IGNORE)
+    db::add_membership(user->id, 1);
+
     json resp;
     resp["token"]    = auth::generate_jwt(user->id, user->username);
     resp["user_id"]  = user->id;
@@ -166,6 +169,29 @@ static int handle_get_channels(lws* wsi, api::HttpSession* s) {
     return send_json(wsi, 200, arr.dump());
 }
 
+static int handle_get_members(lws* wsi, api::HttpSession* s) {
+    std::string token = auth::bearer_token(s->auth_header);
+    auto uid = auth::validate_jwt(token);
+    if (!uid) return send_error_json(wsi, 401, "unauthorized");
+
+    std::string sid_str = query_param(s->uri, "server_id");
+    if (sid_str.empty()) return send_error_json(wsi, 400, "server_id required");
+    int server_id = std::stoi(sid_str);
+
+    if (!db::has_membership(*uid, server_id))
+        return send_error_json(wsi, 403, "not a member of this server");
+
+    auto members = db::get_server_members(server_id);
+    json arr = json::array();
+    for (auto& m : members) {
+        json o;
+        o["id"]       = m.id;
+        o["username"] = m.username;
+        arr.push_back(o);
+    }
+    return send_json(wsi, 200, arr.dump());
+}
+
 static int handle_get_messages(lws* wsi, api::HttpSession* s) {
     std::string token = auth::bearer_token(s->auth_header);
     auto uid = auth::validate_jwt(token);
@@ -200,6 +226,7 @@ static int dispatch_get(lws* wsi, api::HttpSession* s) {
     if (path == API_SERVERS)  return handle_get_servers(wsi, s);
     if (path == API_CHANNELS) return handle_get_channels(wsi, s);
     if (path == API_MESSAGES) return handle_get_messages(wsi, s);
+    if (path == API_MEMBERS)  return handle_get_members(wsi, s);
     return send_error_json(wsi, 404, "not found");
 }
 

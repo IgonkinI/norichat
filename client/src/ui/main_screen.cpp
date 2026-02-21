@@ -40,7 +40,42 @@ void MainScreen::process_incoming(AppState& state) {
 
         std::string op = msg.value("op", "");
 
-        if (op == "MESSAGE_NEW") {
+        if (op == "AUTH_OK") {
+            // Mark online users received in AUTH_OK
+            if (msg.contains("online") && msg["online"].is_array()) {
+                for (auto& u : msg["online"]) {
+                    int uid = u.value("user_id", 0);
+                    std::string uname = u.value("username", "");
+                    bool found = false;
+                    for (auto& m : state.members) {
+                        if (m.id == uid) { m.online = true; found = true; break; }
+                    }
+                    if (!found && uid > 0)
+                        state.members.push_back({uid, uname, true});
+                }
+            }
+            // Mark self as online
+            for (auto& m : state.members) {
+                if (m.id == state.user_id) { m.online = true; break; }
+            }
+            state.set_status("WebSocket authenticated");
+        }
+        else if (op == "USER_ONLINE") {
+            int uid = msg.value("user_id", 0);
+            std::string uname = msg.value("username", "");
+            bool found = false;
+            for (auto& m : state.members) {
+                if (m.id == uid) { m.online = true; found = true; break; }
+            }
+            if (!found && uid > 0)
+                state.members.push_back({uid, uname, true});
+        }
+        else if (op == "USER_OFFLINE") {
+            int uid = msg.value("user_id", 0);
+            for (auto& m : state.members)
+                if (m.id == uid) { m.online = false; break; }
+        }
+        else if (op == "MESSAGE_NEW") {
             MessageInfo m;
             m.id         = msg.value("id", 0);
             m.channel_id = msg.value("channel_id", 0);
@@ -54,9 +89,6 @@ void MainScreen::process_incoming(AppState& state) {
                 state.scroll_to_bottom = true;
             }
         }
-        else if (op == "AUTH_OK") {
-            state.set_status("WebSocket authenticated");
-        }
         else if (op == "AUTH_FAIL" || op == "ERROR") {
             state.set_status(msg.value("error", "Server error"), true);
         }
@@ -64,6 +96,24 @@ void MainScreen::process_incoming(AppState& state) {
 }
 
 // ─── Data loading ─────────────────────────────────────────────────────────────
+
+void MainScreen::load_members(AppState& state, HttpClient& http, int server_id) {
+    auto resp = http.get("/api/members?server_id=" + std::to_string(server_id),
+                         state.auth_token);
+    if (!resp || resp->status_code != 200) return;
+
+    try {
+        auto arr = json::parse(resp->body);
+        state.members.clear();
+        for (auto& o : arr) {
+            MemberInfo m;
+            m.id       = o.value("id", 0);
+            m.username = o.value("username", "?");
+            m.online   = (m.id == state.user_id); // self is always online
+            state.members.push_back(m);
+        }
+    } catch (...) {}
+}
 
 void MainScreen::load_messages(AppState& state, HttpClient& http, int channel_id) {
     auto resp = http.get("/api/messages?channel_id=" + std::to_string(channel_id) +
@@ -186,11 +236,12 @@ void MainScreen::render_sidebar(AppState& state, HttpClient& http, WsClient& ws)
 void MainScreen::render_messages(AppState& state) {
     ImGuiIO& io = ImGui::GetIO();
     const float sidebar_w  = 220.f;
+    const float members_w  = 160.f;
     const float input_h    = 40.f;
     const float topbar_h   = 28.f;
     const float msg_x      = sidebar_w;
     const float msg_y      = topbar_h;
-    const float msg_w      = io.DisplaySize.x - sidebar_w;
+    const float msg_w      = io.DisplaySize.x - sidebar_w - members_w;
     const float msg_h      = io.DisplaySize.y - topbar_h - input_h;
 
     // Top bar: channel name
@@ -248,11 +299,12 @@ void MainScreen::render_messages(AppState& state) {
 void MainScreen::render_input(AppState& state, WsClient& ws) {
     ImGuiIO& io = ImGui::GetIO();
     const float sidebar_w = 220.f;
+    const float members_w = 160.f;
     const float input_h   = 40.f;
 
     ImGui::SetNextWindowPos(ImVec2(sidebar_w, io.DisplaySize.y - input_h),
                             ImGuiCond_Always);
-    ImGui::SetNextWindowSize(ImVec2(io.DisplaySize.x - sidebar_w, input_h),
+    ImGui::SetNextWindowSize(ImVec2(io.DisplaySize.x - sidebar_w - members_w, input_h),
                              ImGuiCond_Always);
     ImGui::Begin("##input", nullptr,
                  ImGuiWindowFlags_NoTitleBar  |
@@ -263,7 +315,7 @@ void MainScreen::render_input(AppState& state, WsClient& ws) {
     bool disabled = (state.selected_channel_id < 0 || !ws.is_connected());
     if (disabled) ImGui::BeginDisabled();
 
-    ImGui::SetNextItemWidth(io.DisplaySize.x - sidebar_w - 80.f);
+    ImGui::SetNextItemWidth(io.DisplaySize.x - sidebar_w - members_w - 80.f);
     bool send = ImGui::InputText("##msg_input", input_buf_, sizeof(input_buf_),
                                  ImGuiInputTextFlags_EnterReturnsTrue);
     ImGui::SameLine();
@@ -286,11 +338,63 @@ void MainScreen::render_input(AppState& state, WsClient& ws) {
     ImGui::End();
 }
 
+// ─── Members panel ────────────────────────────────────────────────────────────
+
+void MainScreen::render_members(AppState& state) {
+    ImGuiIO& io = ImGui::GetIO();
+    const float members_w = 160.f;
+
+    ImGui::SetNextWindowPos(ImVec2(io.DisplaySize.x - members_w, 0), ImGuiCond_Always);
+    ImGui::SetNextWindowSize(ImVec2(members_w, io.DisplaySize.y), ImGuiCond_Always);
+    ImGui::Begin("##members_panel", nullptr,
+                 ImGuiWindowFlags_NoTitleBar  |
+                 ImGuiWindowFlags_NoResize    |
+                 ImGuiWindowFlags_NoMove);
+
+    ImGui::TextDisabled(" Members");
+    ImGui::Separator();
+    ImGui::Spacing();
+
+    // Online first
+    bool printed_online  = false;
+    bool printed_offline = false;
+    for (auto& m : state.members) {
+        if (!m.online) continue;
+        if (!printed_online) {
+            ImGui::TextDisabled("  ONLINE");
+            printed_online = true;
+        }
+        ImGui::TextColored(ImVec4(0.3f, 0.9f, 0.3f, 1.f), " * %s", m.username.c_str());
+    }
+
+    ImGui::Spacing();
+
+    for (auto& m : state.members) {
+        if (m.online) continue;
+        if (!printed_offline) {
+            ImGui::TextDisabled("  OFFLINE");
+            printed_offline = true;
+        }
+        ImGui::TextDisabled("   %s", m.username.c_str());
+    }
+
+    ImGui::End();
+}
+
 // ─── Top-level update ─────────────────────────────────────────────────────────
 
 void MainScreen::update(AppState& state, HttpClient& http, WsClient& ws) {
+    // Load members when server changes
+    static int last_server_id = -1;
+    if (state.selected_server_id != last_server_id) {
+        last_server_id = state.selected_server_id;
+        if (state.selected_server_id >= 0)
+            load_members(state, http, state.selected_server_id);
+    }
+
     process_incoming(state);
     render_sidebar(state, http, ws);
     render_messages(state);
     render_input(state, ws);
+    render_members(state);
 }

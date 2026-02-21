@@ -331,6 +331,25 @@ bool db::add_membership(int user_id, int server_id) {
     return ok;
 }
 
+std::vector<Member> db::get_server_members(int server_id) {
+    std::vector<Member> members;
+    sqlite3_stmt* st = prepare(
+        "SELECT u.id, u.username FROM users u "
+        "JOIN memberships m ON m.user_id = u.id "
+        "WHERE m.server_id = ? ORDER BY u.username");
+    if (!st) return members;
+
+    sqlite3_bind_int(st, 1, server_id);
+    while (sqlite3_step(st) == SQLITE_ROW) {
+        Member m;
+        m.id       = sqlite3_column_int(st, 0);
+        m.username = (const char*)sqlite3_column_text(st, 1);
+        members.push_back(m);
+    }
+    sqlite3_finalize(st);
+    return members;
+}
+
 bool db::has_membership(int user_id, int server_id) {
     sqlite3_stmt* st = prepare(
         "SELECT 1 FROM memberships WHERE user_id=? AND server_id=?");

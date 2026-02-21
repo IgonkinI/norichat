@@ -27,6 +27,12 @@ struct MessageInfo {
     int64_t     ts         = 0;
 };
 
+struct MemberInfo {
+    int         id     = 0;
+    std::string username;
+    bool        online = false;
+};
+
 // ─── Application state ────────────────────────────────────────────────────────
 
 struct AppState {
@@ -48,6 +54,7 @@ struct AppState {
     // Loaded data
     std::vector<ServerInfo>  servers;
     std::vector<ChannelInfo> channels;
+    std::vector<MemberInfo>  members;   // all members of selected server
 
     // Messages – guarded by msg_mutex (written from WS thread)
     std::mutex               msg_mutex;

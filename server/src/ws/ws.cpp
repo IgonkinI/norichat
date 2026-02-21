@@ -48,11 +48,34 @@ static void handle_auth(lws* wsi, ws::Session& session, const json& msg) {
     session.username = user->username;
     session.authed   = true;
 
+    // Build list of currently online users for the new client
+    json online_list = json::array();
+    for (auto& [other_wsi, other_sess] : g_sessions) {
+        if (other_sess.authed && other_wsi != wsi) {
+            json u;
+            u["user_id"]  = other_sess.user_id;
+            u["username"] = other_sess.username;
+            online_list.push_back(u);
+        }
+    }
+
     json resp;
     resp["op"]       = OP_AUTH_OK;
     resp["user_id"]  = user->id;
     resp["username"] = user->username;
+    resp["online"]   = online_list;
     enqueue(wsi, resp.dump());
+
+    // Notify all other authed sessions that this user came online
+    json notify;
+    notify["op"]       = OP_USER_ONLINE;
+    notify["user_id"]  = user->id;
+    notify["username"] = user->username;
+    std::string notify_json = notify.dump();
+    for (auto& [other_wsi, other_sess] : g_sessions) {
+        if (other_sess.authed && other_wsi != wsi)
+            enqueue(other_wsi, notify_json);
+    }
 }
 
 static void handle_channel_join(lws* wsi, ws::Session& session, const json& msg) {
@@ -130,10 +153,25 @@ static int ws_callback(lws* wsi, lws_callback_reasons reason,
         break;
 
     // ── Connection closed ───────────────────────────────────────────────────
-    case LWS_CALLBACK_CLOSED:
-        g_sessions.erase(wsi);
+    case LWS_CALLBACK_CLOSED: {
+        auto it = g_sessions.find(wsi);
+        if (it != g_sessions.end()) {
+            if (it->second.authed) {
+                // Notify remaining sessions that this user went offline
+                json notify;
+                notify["op"]      = OP_USER_OFFLINE;
+                notify["user_id"] = it->second.user_id;
+                std::string notify_json = notify.dump();
+                for (auto& [other_wsi, other_sess] : g_sessions) {
+                    if (other_sess.authed && other_wsi != wsi)
+                        enqueue(other_wsi, notify_json);
+                }
+            }
+            g_sessions.erase(it);
+        }
         fprintf(stdout, "[ws] client disconnected\n");
         break;
+    }
 
     // ── Data received ───────────────────────────────────────────────────────
     case LWS_CALLBACK_RECEIVE: {

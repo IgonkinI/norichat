@@ -22,13 +22,20 @@ find_package(SDL2   REQUIRED)
 find_package(CURL   REQUIRED)
 find_package(OpenGL REQUIRED)
 
-# Normalize SDL2 target – modern configs export SDL2::SDL2; older ones set
-# SDL2_LIBRARIES / SDL2_INCLUDE_DIRS only.
+# Normalize SDL2 target.
+# - vcpkg x64-windows-static  → exports SDL2::SDL2-static (no SDL2::SDL2)
+# - vcpkg x64-windows         → exports SDL2::SDL2 (DLL import)
+# - system FindSDL2.cmake      → sets SDL2_LIBRARIES / SDL2_INCLUDE_DIRS
 if (NOT TARGET SDL2::SDL2)
     add_library(SDL2::SDL2 INTERFACE IMPORTED GLOBAL)
-    set_target_properties(SDL2::SDL2 PROPERTIES
-        INTERFACE_INCLUDE_DIRECTORIES "${SDL2_INCLUDE_DIRS}"
-        INTERFACE_LINK_LIBRARIES      "${SDL2_LIBRARIES}")
+    if (TARGET SDL2::SDL2-static)
+        set_target_properties(SDL2::SDL2 PROPERTIES
+            INTERFACE_LINK_LIBRARIES "SDL2::SDL2-static")
+    else()
+        set_target_properties(SDL2::SDL2 PROPERTIES
+            INTERFACE_INCLUDE_DIRECTORIES "${SDL2_INCLUDE_DIRS}"
+            INTERFACE_LINK_LIBRARIES      "${SDL2_LIBRARIES}")
+    endif()
 endif()
 
 # ─── nlohmann/json (header-only, tiny compile cost) ──────────────────────────
@@ -115,6 +122,11 @@ if (EXISTS ${_lws_client_http})
         file(WRITE ${_lws_client_http} "${_lws_pragmas}${_lws_client_http_content}")
     endif()
 endif()
+
+# libwebsockets v4.3.3 declares cmake_minimum_required < 3.5 which CMake 4.x
+# rejects with a hard error. Setting this variable before add_subdirectory
+# tells CMake to allow the old declaration in subdirectories.
+set(CMAKE_POLICY_VERSION_MINIMUM 3.5)
 
 # Now add the libwebsockets subdirectory so it is built as part of this project.
 add_subdirectory(${libwebsockets_SOURCE_DIR} ${libwebsockets_BINARY_DIR})

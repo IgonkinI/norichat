@@ -11,6 +11,8 @@
 #define OP_AUTH_OK        "AUTH_OK"
 #define OP_AUTH_FAIL      "AUTH_FAIL"
 #define OP_MESSAGE_NEW    "MESSAGE_NEW"
+#define OP_USER_ONLINE    "USER_ONLINE"
+#define OP_USER_OFFLINE   "USER_OFFLINE"
 #define OP_ERROR          "ERROR"
 
 // ─── HTTP paths ───────────────────────────────────────────────────────────────
@@ -19,6 +21,7 @@
 #define API_SERVERS       "/api/servers"
 #define API_CHANNELS      "/api/channels"
 #define API_MESSAGES      "/api/messages"
+#define API_MEMBERS       "/api/members"
 
 // ─── Limits ───────────────────────────────────────────────────────────────────
 #define MAX_MSG_LEN       4000
