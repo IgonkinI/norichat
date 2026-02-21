@@ -1,0 +1,58 @@
+name: Build Server (Linux x64)
+
+on:
+  push:
+    branches: [master]        # каждый пуш → артефакт на 7 дней
+    tags:     ['v*']          # тег v* → публичный GitHub Release
+  workflow_dispatch:          # ручной запуск из UI
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+      # ── Исходники ──────────────────────────────────────────────────────────
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      # ── Зависимости (быстро, без компиляции) ──────────────────────────────
+      - name: Install system dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            build-essential \
+            cmake \
+            pkg-config \
+            libssl-dev \
+            libsqlite3-dev \
+            libwebsockets-dev
+
+      # ── Сборка ────────────────────────────────────────────────────────────
+      - name: Configure CMake
+        run: |
+          cmake -S server -B server/build \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DNORICHAT_FETCH_LIBS=OFF
+
+      - name: Build
+        run: cmake --build server/build --parallel
+
+      - name: Strip binary
+        run: strip server/build/norichat_server
+
+      # ── Артефакт (для каждого пуша в master) ──────────────────────────────
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: norichat-server-linux-x64
+          path: server/build/norichat_server
+          retention-days: 7
+
+      # ── GitHub Release (только при теге v*) ───────────────────────────────
+      - name: Create GitHub Release
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: softprops/action-gh-release@v2
+        with:
+          name: "NoriChat ${{ github.ref_name }}"
+          files: server/build/norichat_server
+          generate_release_notes: true
