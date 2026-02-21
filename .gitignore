@@ -1,0 +1,48 @@
+# Build directories
+build/
+out/
+cmake-build-*/
+
+# CMake cache / generated files
+CMakeCache.txt
+CMakeFiles/
+cmake_install.cmake
+install_manifest.txt
+Makefile
+*.cmake
+!CMakeLists.txt
+
+# Compiled binaries
+*.exe
+*.out
+*.o
+*.obj
+*.a
+*.lib
+*.so
+*.dylib
+*.dll
+*.pdb
+*.ilk
+*.exp
+
+# Runtime data
+*.db
+*.db-wal
+*.db-shm
+
+# IDE / editor
+.vscode/
+.vs/
+*.user
+*.suo
+.idea/
+*.swp
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# FetchContent cache (populated at configure time, not source)
+_deps/
