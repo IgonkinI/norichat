@@ -1,16 +1,13 @@
-// NoriChat Client – Win32 + DirectX 11 + Dear ImGui
-// Requires Windows SDK (D3D11 / DXGI) and Visual C++ / MinGW.
+// NoriChat Client – SDL2 + OpenGL3 + Dear ImGui
+// Cross-platform: Windows and Linux.
 
-#define WIN32_LEAN_AND_MEAN
-#define NOMINMAX
-#include <windows.h>
-#include <d3d11.h>
-#include <dxgi.h>
-
+#include <SDL.h>
+#include <SDL_opengl.h>
 #include <imgui.h>
-#include <imgui_impl_win32.h>
-#include <imgui_impl_dx11.h>
+#include <imgui_impl_sdl2.h>
+#include <imgui_impl_opengl3.h>
 
+#include <cstdio>
 #include <memory>
 #include "state.h"
 #include "net/http_client.h"
@@ -18,111 +15,43 @@
 #include "ui/login_screen.h"
 #include "ui/main_screen.h"
 
-#pragma comment(lib, "d3d11.lib")
-#pragma comment(lib, "dxgi.lib")
-#pragma comment(lib, "winhttp.lib")
-
-// ─── DirectX 11 globals ───────────────────────────────────────────────────────
-
-static ID3D11Device*           g_device           = nullptr;
-static ID3D11DeviceContext*    g_device_ctx        = nullptr;
-static IDXGISwapChain*         g_swap_chain        = nullptr;
-static ID3D11RenderTargetView* g_main_rtv          = nullptr;
-static UINT                    g_resize_w          = 0;
-static UINT                    g_resize_h          = 0;
-
-static bool create_device(HWND hwnd) {
-    DXGI_SWAP_CHAIN_DESC sd = {};
-    sd.BufferCount                        = 2;
-    sd.BufferDesc.Format                  = DXGI_FORMAT_R8G8B8A8_UNORM;
-    sd.BufferUsage                        = DXGI_USAGE_RENDER_TARGET_OUTPUT;
-    sd.OutputWindow                       = hwnd;
-    sd.SampleDesc.Count                   = 1;
-    sd.Windowed                           = TRUE;
-    sd.SwapEffect                         = DXGI_SWAP_EFFECT_DISCARD;
-
-    D3D_FEATURE_LEVEL feature_level;
-    const D3D_FEATURE_LEVEL levels[] = { D3D_FEATURE_LEVEL_11_0 };
-    HRESULT hr = D3D11CreateDeviceAndSwapChain(
-        nullptr, D3D_DRIVER_TYPE_HARDWARE, nullptr,
-        0, levels, 1, D3D11_SDK_VERSION,
-        &sd, &g_swap_chain, &g_device, &feature_level, &g_device_ctx);
-    if (FAILED(hr)) return false;
-
-    ID3D11Texture2D* back_buf = nullptr;
-    g_swap_chain->GetBuffer(0, IID_PPV_ARGS(&back_buf));
-    g_device->CreateRenderTargetView(back_buf, nullptr, &g_main_rtv);
-    back_buf->Release();
-    return true;
-}
-
-static void cleanup_device() {
-    if (g_main_rtv)  { g_main_rtv->Release();  g_main_rtv  = nullptr; }
-    if (g_swap_chain){ g_swap_chain->Release(); g_swap_chain= nullptr; }
-    if (g_device_ctx){ g_device_ctx->Release(); g_device_ctx= nullptr; }
-    if (g_device)    { g_device->Release();     g_device    = nullptr; }
-}
-
-static void create_rtv() {
-    ID3D11Texture2D* back_buf = nullptr;
-    g_swap_chain->GetBuffer(0, IID_PPV_ARGS(&back_buf));
-    g_device->CreateRenderTargetView(back_buf, nullptr, &g_main_rtv);
-    back_buf->Release();
-}
-
-// ─── WndProc ──────────────────────────────────────────────────────────────────
-
-extern IMGUI_IMPL_API LRESULT ImGui_ImplWin32_WndProcHandler(HWND, UINT, WPARAM, LPARAM);
-
-static LRESULT WINAPI WndProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
-    if (ImGui_ImplWin32_WndProcHandler(hwnd, msg, wp, lp)) return TRUE;
-
-    switch (msg) {
-    case WM_SIZE:
-        if (g_device && wp != SIZE_MINIMIZED) {
-            g_resize_w = LOWORD(lp);
-            g_resize_h = HIWORD(lp);
-        }
-        return 0;
-    case WM_SYSCOMMAND:
-        if ((wp & 0xfff0) == SC_KEYMENU) return 0;
-        break;
-    case WM_DESTROY:
-        PostQuitMessage(0);
-        return 0;
-    }
-    return DefWindowProcW(hwnd, msg, wp, lp);
-}
-
-// ─── WinMain ──────────────────────────────────────────────────────────────────
-
-int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR, int) {
-    // Register window class
-    WNDCLASSEXW wc = {};
-    wc.cbSize        = sizeof(wc);
-    wc.style         = CS_CLASSDC;
-    wc.lpfnWndProc   = WndProc;
-    wc.hInstance     = hInstance;
-    wc.hCursor       = LoadCursor(nullptr, IDC_ARROW);
-    wc.lpszClassName = L"NoriChat";
-    RegisterClassExW(&wc);
-
-    HWND hwnd = CreateWindowExW(0, L"NoriChat", L"NoriChat",
-                                WS_OVERLAPPEDWINDOW,
-                                100, 100, 1280, 720,
-                                nullptr, nullptr, hInstance, nullptr);
-    if (!hwnd) { UnregisterClassW(wc.lpszClassName, hInstance); return 1; }
-
-    if (!create_device(hwnd)) {
-        DestroyWindow(hwnd);
-        UnregisterClassW(wc.lpszClassName, hInstance);
+int main(int /*argc*/, char* /*argv*/[]) {
+    if (SDL_Init(SDL_INIT_VIDEO | SDL_INIT_TIMER) != 0) {
+        fprintf(stderr, "[SDL] Init error: %s\n", SDL_GetError());
         return 1;
     }
 
-    ShowWindow(hwnd, SW_SHOWDEFAULT);
-    UpdateWindow(hwnd);
+    // OpenGL 3.3 Core
+    SDL_GL_SetAttribute(SDL_GL_CONTEXT_FLAGS, 0);
+    SDL_GL_SetAttribute(SDL_GL_CONTEXT_PROFILE_MASK, SDL_GL_CONTEXT_PROFILE_CORE);
+    SDL_GL_SetAttribute(SDL_GL_CONTEXT_MAJOR_VERSION, 3);
+    SDL_GL_SetAttribute(SDL_GL_CONTEXT_MINOR_VERSION, 3);
+    SDL_GL_SetAttribute(SDL_GL_DOUBLEBUFFER, 1);
+    SDL_GL_SetAttribute(SDL_GL_DEPTH_SIZE, 24);
+    SDL_GL_SetAttribute(SDL_GL_STENCIL_SIZE, 8);
 
-    // ── ImGui setup ─────────────────────────────────────────────────────────
+    SDL_Window* window = SDL_CreateWindow(
+        "NoriChat",
+        SDL_WINDOWPOS_CENTERED, SDL_WINDOWPOS_CENTERED,
+        1280, 720,
+        SDL_WINDOW_OPENGL | SDL_WINDOW_RESIZABLE | SDL_WINDOW_ALLOW_HIGHDPI);
+    if (!window) {
+        fprintf(stderr, "[SDL] CreateWindow error: %s\n", SDL_GetError());
+        SDL_Quit();
+        return 1;
+    }
+
+    SDL_GLContext gl_ctx = SDL_GL_CreateContext(window);
+    if (!gl_ctx) {
+        fprintf(stderr, "[SDL] GL context error: %s\n", SDL_GetError());
+        SDL_DestroyWindow(window);
+        SDL_Quit();
+        return 1;
+    }
+    SDL_GL_MakeCurrent(window, gl_ctx);
+    SDL_GL_SetSwapInterval(1); // VSync
+
+    // ── ImGui setup ──────────────────────────────────────────────────────────
     IMGUI_CHECKVERSION();
     ImGui::CreateContext();
     ImGuiIO& io = ImGui::GetIO();
@@ -130,22 +59,20 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR, int) {
     io.IniFilename  = nullptr; // no imgui.ini
 
     ImGui::StyleColorsDark();
-    // Slightly tweaked palette
     ImGuiStyle& style = ImGui::GetStyle();
-    style.WindowRounding   = 4.f;
-    style.FrameRounding    = 3.f;
+    style.WindowRounding    = 4.f;
+    style.FrameRounding     = 3.f;
     style.ScrollbarRounding = 3.f;
     style.Colors[ImGuiCol_WindowBg] = ImVec4(0.08f, 0.09f, 0.10f, 1.f);
 
-    ImGui_ImplWin32_Init(hwnd);
-    ImGui_ImplDX11_Init(g_device, g_device_ctx);
+    ImGui_ImplSDL2_InitForOpenGL(window, gl_ctx);
+    ImGui_ImplOpenGL3_Init("#version 330");
 
-    // ── App objects ─────────────────────────────────────────────────────────
+    // ── App objects ──────────────────────────────────────────────────────────
     AppState state;
-    // http is rebuilt when the user edits host/port on the login screen.
-    std::unique_ptr<HttpClient> http = std::make_unique<HttpClient>(
-        state.server_host, state.server_port);
-    WsClient   ws;
+    std::unique_ptr<HttpClient> http =
+        std::make_unique<HttpClient>(state.server_host, state.server_port);
+    WsClient    ws;
     LoginScreen login_screen;
     MainScreen  main_screen;
 
@@ -154,33 +81,36 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR, int) {
 
     // ── Main loop ────────────────────────────────────────────────────────────
     while (running) {
-        // Process Windows messages
-        MSG msg;
-        while (PeekMessageW(&msg, nullptr, 0, 0, PM_REMOVE)) {
-            TranslateMessage(&msg);
-            DispatchMessageW(&msg);
-            if (msg.message == WM_QUIT) running = false;
-        }
-        if (!running) break;
-
-        // Handle resize
-        if (g_resize_w != 0) {
-            if (g_main_rtv) { g_main_rtv->Release(); g_main_rtv = nullptr; }
-            g_swap_chain->ResizeBuffers(0, g_resize_w, g_resize_h,
-                                        DXGI_FORMAT_UNKNOWN, 0);
-            g_resize_w = g_resize_h = 0;
-            create_rtv();
+        SDL_Event event;
+        while (SDL_PollEvent(&event)) {
+            ImGui_ImplSDL2_ProcessEvent(&event);
+            if (event.type == SDL_QUIT)
+                running = false;
+            if (event.type == SDL_WINDOWEVENT &&
+                event.window.event == SDL_WINDOWEVENT_CLOSE &&
+                event.window.windowID == SDL_GetWindowID(window))
+                running = false;
         }
 
-        // Re-create HttpClient if server address changed (simple approach)
-        // (In production you'd do this only on address change)
+        // Re-create HttpClient if server address changed
+        {
+            static char last_host[128] = {};
+            static int  last_port      = 0;
+            if (strcmp(last_host, state.server_host) != 0 ||
+                last_port != state.server_port) {
+                strncpy(last_host, state.server_host, sizeof(last_host) - 1);
+                last_port = state.server_port;
+                http = std::make_unique<HttpClient>(state.server_host,
+                                                    state.server_port);
+            }
+        }
 
         // ImGui new frame
-        ImGui_ImplDX11_NewFrame();
-        ImGui_ImplWin32_NewFrame();
+        ImGui_ImplOpenGL3_NewFrame();
+        ImGui_ImplSDL2_NewFrame();
         ImGui::NewFrame();
 
-        // Fullscreen dockspace backdrop
+        // Fullscreen backdrop
         {
             ImGui::SetNextWindowPos(ImVec2(0, 0));
             ImGui::SetNextWindowSize(io.DisplaySize);
@@ -196,20 +126,9 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR, int) {
 
         // Dispatch to current screen
         switch (state.screen) {
-        case AppState::Screen::Login: {
-            // Rebuild HttpClient if the user edits host/port fields
-            static char last_host[128] = {};
-            static int  last_port      = 0;
-            if (strcmp(last_host, state.server_host) != 0 ||
-                last_port != state.server_port) {
-                strncpy(last_host, state.server_host, sizeof(last_host));
-                last_port = state.server_port;
-                http = std::make_unique<HttpClient>(state.server_host,
-                                                    state.server_port);
-            }
+        case AppState::Screen::Login:
             login_screen.render(state, *http, ws);
             break;
-        }
         case AppState::Screen::Main:
             main_screen.update(state, *http, ws);
             break;
@@ -217,23 +136,25 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR, int) {
 
         // Render
         ImGui::Render();
-        g_device_ctx->OMSetRenderTargets(1, &g_main_rtv, nullptr);
-        const float cc[4] = { clear_color.x, clear_color.y,
-                               clear_color.z, clear_color.w };
-        g_device_ctx->ClearRenderTargetView(g_main_rtv, cc);
-        ImGui_ImplDX11_RenderDrawData(ImGui::GetDrawData());
-        g_swap_chain->Present(1, 0); // VSync on
+        int w, h;
+        SDL_GetWindowSize(window, &w, &h);
+        glViewport(0, 0, w, h);
+        glClearColor(clear_color.x, clear_color.y,
+                     clear_color.z, clear_color.w);
+        glClear(GL_COLOR_BUFFER_BIT);
+        ImGui_ImplOpenGL3_RenderDrawData(ImGui::GetDrawData());
+        SDL_GL_SwapWindow(window);
     }
 
     // ── Cleanup ──────────────────────────────────────────────────────────────
     ws.disconnect();
 
-    ImGui_ImplDX11_Shutdown();
-    ImGui_ImplWin32_Shutdown();
+    ImGui_ImplOpenGL3_Shutdown();
+    ImGui_ImplSDL2_Shutdown();
     ImGui::DestroyContext();
 
-    cleanup_device();
-    DestroyWindow(hwnd);
-    UnregisterClassW(wc.lpszClassName, hInstance);
+    SDL_GL_DeleteContext(gl_ctx);
+    SDL_DestroyWindow(window);
+    SDL_Quit();
     return 0;
 }

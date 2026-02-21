@@ -4,49 +4,76 @@ project(norichat_client CXX)
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
-if (NOT WIN32)
-    message(FATAL_ERROR "norichat_client requires Windows (DirectX 11 / WinHTTP).")
+# Use static CRT on Windows to match vcpkg x64-windows-static triplet.
+# Must be set before any target is defined (including FetchContent subdirs).
+if (MSVC)
+    set(CMAKE_MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>")
 endif()
 
-# ─── FetchContent dependencies ────────────────────────────────────────────────
 include(FetchContent)
 set(FETCHCONTENT_QUIET OFF)
 
-# ── Dear ImGui (no CMakeLists.txt upstream, build manually) ──────────────────
-FetchContent_Declare(
-    imgui
-    GIT_REPOSITORY https://github.com/ocornut/imgui.git
-    GIT_TAG        v1.90.4
-    GIT_SHALLOW    TRUE
-)
-FetchContent_Populate(imgui)   # Populate only; we add sources ourselves.
+# ─── System / vcpkg deps (SDL2, libcurl, OpenGL) ─────────────────────────────
+# Linux : sudo apt install libsdl2-dev libcurl4-openssl-dev libgl1-mesa-dev
+# Windows: vcpkg install sdl2:x64-windows-static curl:x64-windows-static
+#          cmake … -DCMAKE_TOOLCHAIN_FILE=$VCPKG_INSTALLATION_ROOT/scripts/buildsystems/vcpkg.cmake
+#                  -DVCPKG_TARGET_TRIPLET=x64-windows-static
+find_package(SDL2   REQUIRED)
+find_package(CURL   REQUIRED)
+find_package(OpenGL REQUIRED)
 
-add_library(imgui STATIC
-    ${imgui_SOURCE_DIR}/imgui.cpp
-    ${imgui_SOURCE_DIR}/imgui_draw.cpp
-    ${imgui_SOURCE_DIR}/imgui_tables.cpp
-    ${imgui_SOURCE_DIR}/imgui_widgets.cpp
-    ${imgui_SOURCE_DIR}/backends/imgui_impl_win32.cpp
-    ${imgui_SOURCE_DIR}/backends/imgui_impl_dx11.cpp
-)
-target_include_directories(imgui PUBLIC
-    ${imgui_SOURCE_DIR}
-    ${imgui_SOURCE_DIR}/backends
-)
-# Silence MSVC warnings in third-party code
-if (MSVC)
-    target_compile_options(imgui PRIVATE /W0)
+# Normalize SDL2 target – modern configs export SDL2::SDL2; older ones set
+# SDL2_LIBRARIES / SDL2_INCLUDE_DIRS only.
+if (NOT TARGET SDL2::SDL2)
+    add_library(SDL2::SDL2 INTERFACE IMPORTED GLOBAL)
+    set_target_properties(SDL2::SDL2 PROPERTIES
+        INTERFACE_INCLUDE_DIRECTORIES "${SDL2_INCLUDE_DIRS}"
+        INTERFACE_LINK_LIBRARIES      "${SDL2_LIBRARIES}")
 endif()
 
-# ── nlohmann/json (shared with server) ───────────────────────────────────────
+# ─── nlohmann/json (header-only, tiny compile cost) ──────────────────────────
 FetchContent_Declare(
     nlohmann_json
     GIT_REPOSITORY https://github.com/nlohmann/json.git
     GIT_TAG        v3.11.3
     GIT_SHALLOW    TRUE
 )
+FetchContent_MakeAvailable(nlohmann_json)
 
-# ── libwebsockets – static, no TLS (Phase 1) ─────────────────────────────────
+# ─── Dear ImGui (no upstream CMakeLists – build sources manually) ─────────────
+FetchContent_Declare(
+    imgui
+    GIT_REPOSITORY https://github.com/ocornut/imgui.git
+    GIT_TAG        v1.90.4
+    GIT_SHALLOW    TRUE
+)
+# FetchContent_Populate only: we handle add_library ourselves.
+FetchContent_GetProperties(imgui)
+if (NOT imgui_POPULATED)
+    FetchContent_Populate(imgui)
+endif()
+
+add_library(imgui_lib STATIC
+    ${imgui_SOURCE_DIR}/imgui.cpp
+    ${imgui_SOURCE_DIR}/imgui_draw.cpp
+    ${imgui_SOURCE_DIR}/imgui_tables.cpp
+    ${imgui_SOURCE_DIR}/imgui_widgets.cpp
+    ${imgui_SOURCE_DIR}/backends/imgui_impl_sdl2.cpp
+    ${imgui_SOURCE_DIR}/backends/imgui_impl_opengl3.cpp
+)
+target_include_directories(imgui_lib PUBLIC
+    ${imgui_SOURCE_DIR}
+    ${imgui_SOURCE_DIR}/backends
+)
+# imgui_impl_sdl2 needs SDL2 headers; pull them in transitively.
+target_link_libraries(imgui_lib PUBLIC SDL2::SDL2)
+if (MSVC)
+    target_compile_options(imgui_lib PRIVATE /W0)
+elseif (CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
+    target_compile_options(imgui_lib PRIVATE -w)
+endif()
+
+# ─── libwebsockets – static, no TLS (always FetchContent) ────────────────────
 set(LWS_WITH_SSL            OFF CACHE BOOL "" FORCE)
 set(LWS_WITH_SHARED         OFF CACHE BOOL "" FORCE)
 set(LWS_WITH_STATIC         ON  CACHE BOOL "" FORCE)
@@ -59,6 +86,7 @@ set(LWS_WITH_HTTP2          OFF CACHE BOOL "" FORCE)
 set(LWS_WITH_ZLIB           OFF CACHE BOOL "" FORCE)
 set(LWS_WITHOUT_EXTENSIONS  ON  CACHE BOOL "" FORCE)
 set(LWS_WITH_LIBUV          OFF CACHE BOOL "" FORCE)
+set(LWS_WITH_LIBEVENT       OFF CACHE BOOL "" FORCE)
 
 FetchContent_Declare(
     libwebsockets
@@ -66,24 +94,12 @@ FetchContent_Declare(
     GIT_TAG        v4.3.3
     GIT_SHALLOW    TRUE
 )
-
-# ── miniaudio (single-header, Phase 1 placeholder) ───────────────────────────
-FetchContent_Declare(
-    miniaudio
-    GIT_REPOSITORY https://github.com/mackron/miniaudio.git
-    GIT_TAG        master
-    GIT_SHALLOW    TRUE
-)
-FetchContent_Populate(miniaudio)
-add_library(miniaudio INTERFACE)
-target_include_directories(miniaudio INTERFACE ${miniaudio_SOURCE_DIR})
-
-FetchContent_MakeAvailable(nlohmann_json libwebsockets)
+FetchContent_MakeAvailable(libwebsockets)
 
 # ─── Shared protocol include ──────────────────────────────────────────────────
 set(SHARED_INCLUDE_DIR ${CMAKE_CURRENT_SOURCE_DIR}/../shared)
 
-# ─── Client sources ───────────────────────────────────────────────────────────
+# ─── Client executable ────────────────────────────────────────────────────────
 set(CLIENT_SOURCES
     src/main.cpp
     src/net/http_client.cpp
@@ -92,8 +108,7 @@ set(CLIENT_SOURCES
     src/ui/main_screen.cpp
 )
 
-# WIN32 = no console window in release; linker entry is WinMain.
-add_executable(norichat_client WIN32 ${CLIENT_SOURCES})
+add_executable(norichat_client ${CLIENT_SOURCES})
 
 target_include_directories(norichat_client PRIVATE
     src/
@@ -101,24 +116,29 @@ target_include_directories(norichat_client PRIVATE
 )
 
 target_link_libraries(norichat_client PRIVATE
-    imgui
+    imgui_lib
     nlohmann_json::nlohmann_json
     websockets_static
-    miniaudio
-    d3d11
-    dxgi
-    winhttp
+    CURL::libcurl
+    OpenGL::GL
 )
 
-# ─── Compiler options ─────────────────────────────────────────────────────────
+# ─── Windows specifics ────────────────────────────────────────────────────────
+if (WIN32)
+    # SDL2main provides WinMain → main() bridge; must come before SDL2.
+    if (TARGET SDL2::SDL2main)
+        target_link_libraries(norichat_client PRIVATE SDL2::SDL2main)
+    endif()
+    # Hide the console window in release.
+    set_target_properties(norichat_client PROPERTIES WIN32_EXECUTABLE TRUE)
+    target_compile_definitions(norichat_client PRIVATE NOMINMAX WIN32_LEAN_AND_MEAN)
+endif()
+
+# ─── Compiler warnings ────────────────────────────────────────────────────────
 if (MSVC)
     target_compile_options(norichat_client PRIVATE /W3 /MP /utf-8)
-    # Avoid min/max macro conflicts
-    target_compile_definitions(norichat_client PRIVATE NOMINMAX WIN32_LEAN_AND_MEAN)
-elseif (MINGW)
+elseif (CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
     target_compile_options(norichat_client PRIVATE -Wall -Wextra)
-    target_compile_definitions(norichat_client PRIVATE NOMINMAX WIN32_LEAN_AND_MEAN)
-    target_link_options(norichat_client PRIVATE -mwindows)
 endif()
 
 # ─── Install ──────────────────────────────────────────────────────────────────

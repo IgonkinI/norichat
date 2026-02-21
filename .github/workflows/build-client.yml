@@ -1,0 +1,93 @@
+name: Build Client
+
+on:
+  push:
+    branches: [master]
+    tags: ['v*']
+  workflow_dispatch:
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            name: linux-x64
+            artifact: norichat_client-linux-x64
+            binary: client/install/bin/norichat_client
+
+          - os: windows-latest
+            name: windows-x64
+            artifact: norichat_client-windows-x64
+            binary: client/install/bin/norichat_client.exe
+
+    runs-on: ${{ matrix.os }}
+    name: ${{ matrix.name }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      # ── Linux: install SDL2, libcurl, Mesa OpenGL headers ─────────────────
+      - name: Install deps (Linux)
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            libsdl2-dev \
+            libcurl4-openssl-dev \
+            libgl1-mesa-dev
+
+      # ── Windows: install SDL2 + curl via vcpkg (static triplet) ──────────
+      - name: Install deps (Windows)
+        if: runner.os == 'Windows'
+        run: vcpkg install sdl2:x64-windows-static curl:x64-windows-static
+        shell: cmd
+
+      # ── Configure ─────────────────────────────────────────────────────────
+      - name: Configure (Linux)
+        if: runner.os == 'Linux'
+        run: |
+          cmake -B client/build \
+            -S client \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DCMAKE_INSTALL_PREFIX=client/install
+
+      - name: Configure (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          cmake -B client/build `
+            -S client `
+            -DCMAKE_BUILD_TYPE=Release `
+            -DCMAKE_INSTALL_PREFIX=client/install `
+            "-DCMAKE_TOOLCHAIN_FILE=$env:VCPKG_INSTALLATION_ROOT/scripts/buildsystems/vcpkg.cmake" `
+            -DVCPKG_TARGET_TRIPLET=x64-windows-static
+
+      # ── Build ─────────────────────────────────────────────────────────────
+      - name: Build
+        run: cmake --build client/build --config Release --parallel
+
+      # ── Install ───────────────────────────────────────────────────────────
+      - name: Install
+        run: cmake --install client/build --config Release
+
+      # ── Strip (Linux only, reduces binary size) ────────────────────────────
+      - name: Strip binary
+        if: runner.os == 'Linux'
+        run: strip client/install/bin/norichat_client
+
+      # ── Upload CI artifact (every master push, kept 7 days) ───────────────
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.artifact }}
+          path: ${{ matrix.binary }}
+          retention-days: 7
+
+      # ── Publish GitHub Release on version tag ─────────────────────────────
+      - name: Create GitHub Release
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: ${{ matrix.binary }}
