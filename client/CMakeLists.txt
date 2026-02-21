@@ -96,6 +96,16 @@ FetchContent_Declare(
 )
 FetchContent_MakeAvailable(libwebsockets)
 
+# Suppress warnings in libwebsockets v4.3.3: client-http.c has an unused label
+# 'hs2' that trips -Werror on GCC/Clang and C2220 on MSVC.
+if (TARGET websockets_static)
+    if (MSVC)
+        target_compile_options(websockets_static PRIVATE /W0)
+    elseif (CMAKE_C_COMPILER_ID MATCHES "GNU|Clang")
+        target_compile_options(websockets_static PRIVATE -w)
+    endif()
+endif()
+
 # ─── Shared protocol include ──────────────────────────────────────────────────
 set(SHARED_INCLUDE_DIR ${CMAKE_CURRENT_SOURCE_DIR}/../shared)
 
