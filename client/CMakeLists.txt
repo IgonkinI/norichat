@@ -101,7 +101,7 @@ FetchContent_MakeAvailable(libwebsockets)
 if (TARGET websockets_static)
     if (MSVC)
         target_compile_options(websockets_static PRIVATE /W0)
-    elseif (CMAKE_C_COMPILER_ID MATCHES "GNU|Clang")
+    elseif (CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
         target_compile_options(websockets_static PRIVATE -w)
     endif()
 endif()
@@ -123,6 +123,9 @@ add_executable(norichat_client ${CLIENT_SOURCES})
 target_include_directories(norichat_client PRIVATE
     src/
     ${SHARED_INCLUDE_DIR}
+    # lws headers – websockets_static may not export INTERFACE includes on MSVC
+    ${libwebsockets_SOURCE_DIR}/include
+    ${libwebsockets_BINARY_DIR}   # lws_config.h is generated here
 )
 
 target_link_libraries(norichat_client PRIVATE
