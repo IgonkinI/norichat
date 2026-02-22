@@ -250,6 +250,78 @@ void MainScreen::render_sidebar(AppState& state, HttpClient& http, WsClient& ws)
                 } catch (...) {}
             }
         }
+
+        // "+" button to create a new channel in this server
+        if (open) {
+            ImGui::SetCursorPosX(8.f);
+            std::string btn_id = "+ New Channel##" + std::to_string(sv.id);
+            ImGui::PushStyleColor(ImGuiCol_Button,        ImVec4(0,0,0,0));
+            ImGui::PushStyleColor(ImGuiCol_ButtonHovered, ImVec4(0.f, 0.55f, 0.75f, 0.35f));
+            ImGui::PushStyleColor(ImGuiCol_Text,          ImVec4(0.45f, 0.60f, 0.70f, 1.f));
+            bool clicked = ImGui::SmallButton(btn_id.c_str());
+            ImGui::PopStyleColor(3);
+            if (clicked) {
+                show_create_channel_       = true;
+                create_channel_server_id_  = sv.id;
+                new_channel_buf_[0]        = '\0';
+                ImGui::OpenPopup("Create Channel");
+            }
+        }
+    }
+
+    // ── Create Channel modal ─────────────────────────────────────────────────
+    ImGui::SetNextWindowSize(ImVec2(280.f, 120.f), ImGuiCond_Always);
+    ImGui::SetNextWindowPos(ImVec2(sidebar_w * 0.5f, 120.f),
+                            ImGuiCond_Always, ImVec2(0.5f, 0.5f));
+    if (ImGui::BeginPopupModal("Create Channel", &show_create_channel_,
+                               ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoMove)) {
+        ImGui::Text("Channel name:");
+        ImGui::SetNextItemWidth(260.f);
+        bool enter = ImGui::InputText("##ch_name", new_channel_buf_,
+                                      sizeof(new_channel_buf_),
+                                      ImGuiInputTextFlags_EnterReturnsTrue);
+        ImGui::Spacing();
+        bool ok = ImGui::Button("Create", ImVec2(120.f, 0)) || enter;
+        ImGui::SameLine();
+        if (ImGui::Button("Cancel", ImVec2(120.f, 0))) {
+            show_create_channel_ = false;
+            ImGui::CloseCurrentPopup();
+        }
+        if (ok && strlen(new_channel_buf_) > 0) {
+            // POST /api/channels
+            json body;
+            body["server_id"] = create_channel_server_id_;
+            body["name"]      = std::string(new_channel_buf_);
+            auto resp = http.post("/api/channels", body.dump(), state.auth_token);
+            if (resp && resp->status_code == 201) {
+                // Reload channel list
+                auto ch_resp = http.get("/api/channels?server_id=" +
+                                        std::to_string(create_channel_server_id_),
+                                        state.auth_token);
+                if (ch_resp && ch_resp->status_code == 200) {
+                    try {
+                        auto arr = json::parse(ch_resp->body);
+                        state.channels.clear();
+                        for (auto& o : arr)
+                            state.channels.push_back({o["id"].get<int>(),
+                                                      o["server_id"].get<int>(),
+                                                      o["name"].get<std::string>(),
+                                                      o["type"].get<std::string>()});
+                    } catch (...) {}
+                }
+                state.set_status("Channel created");
+            } else {
+                try {
+                    auto err = json::parse(resp ? resp->body : "{}");
+                    state.set_status(err.value("error", "Failed to create channel"), true);
+                } catch (...) {
+                    state.set_status("Failed to create channel", true);
+                }
+            }
+            show_create_channel_ = false;
+            ImGui::CloseCurrentPopup();
+        }
+        ImGui::EndPopup();
     }
 
     ImGui::End();
@@ -396,8 +468,8 @@ void MainScreen::render_input(AppState& state, WsClient& ws) {
                  ImGuiWindowFlags_NoMove      |
                  ImGuiWindowFlags_NoScrollbar);
 
-    bool disabled = (state.selected_channel_id < 0 || !ws.is_connected());
-    if (disabled) ImGui::BeginDisabled();
+    bool no_channel = (state.selected_channel_id < 0);
+    if (no_channel) ImGui::BeginDisabled();
 
     ImGui::SetNextItemWidth(io.DisplaySize.x - sidebar_w - members_w - 80.f);
     bool send = ImGui::InputText("##msg_input", input_buf_, sizeof(input_buf_),
@@ -405,16 +477,20 @@ void MainScreen::render_input(AppState& state, WsClient& ws) {
     ImGui::SameLine();
     send |= ImGui::Button("Send", ImVec2(60.f, 0));
 
-    if (disabled) ImGui::EndDisabled();
+    if (no_channel) ImGui::EndDisabled();
 
-    if (send && !disabled && strlen(input_buf_) > 0) {
-        json msg;
-        msg["op"]         = "MESSAGE_SEND";
-        msg["channel_id"] = state.selected_channel_id;
-        msg["content"]    = std::string(input_buf_);
-        ws.send(msg.dump());
-        input_buf_[0] = '\0';
-        ImGui::SetKeyboardFocusHere(-1);
+    if (send && !no_channel && strlen(input_buf_) > 0) {
+        if (!ws.is_connected()) {
+            state.set_status("WebSocket not connected — try reconnecting", true);
+        } else {
+            json msg;
+            msg["op"]         = "MESSAGE_SEND";
+            msg["channel_id"] = state.selected_channel_id;
+            msg["content"]    = std::string(input_buf_);
+            ws.send(msg.dump());
+            input_buf_[0] = '\0';
+            ImGui::SetKeyboardFocusHere(-1);
+        }
     }
 
     ImGui::End();

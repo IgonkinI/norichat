@@ -231,10 +231,42 @@ static int dispatch_get(lws* wsi, api::HttpSession* s) {
     return send_error_json(wsi, 404, "not found");
 }
 
+static int handle_create_channel(lws* wsi, api::HttpSession* s) {
+    std::string token = auth::bearer_token(s->auth_header);
+    auto uid = auth::validate_jwt(token);
+    if (!uid) return send_error_json(wsi, 401, "unauthorized");
+
+    json req;
+    try { req = json::parse(std::string(s->body, s->body_len)); }
+    catch (...) { return send_error_json(wsi, 400, "invalid JSON"); }
+
+    int server_id     = req.value("server_id", 0);
+    std::string name  = req.value("name", "");
+    if (server_id <= 0 || name.empty())
+        return send_error_json(wsi, 400, "server_id and name required");
+    if (name.size() > 64)
+        return send_error_json(wsi, 400, "channel name too long");
+
+    if (!db::has_membership(*uid, server_id))
+        return send_error_json(wsi, 403, "not a member of this server");
+
+    auto ch = db::create_channel(server_id, name);
+    if (!ch)
+        return send_error_json(wsi, 500, "failed to create channel");
+
+    json resp;
+    resp["id"]        = ch->id;
+    resp["server_id"] = ch->server_id;
+    resp["name"]      = ch->name;
+    resp["type"]      = ch->type;
+    return send_json(wsi, 201, resp.dump());
+}
+
 static int dispatch_post(lws* wsi, api::HttpSession* s) {
     std::string path = uri_path(s->uri);
     if (path == API_REGISTER) return handle_register(wsi, s);
     if (path == API_LOGIN)    return handle_login(wsi, s);
+    if (path == API_CHANNELS) return handle_create_channel(wsi, s);
     return send_error_json(wsi, 404, "not found");
 }
 

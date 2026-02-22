@@ -13,6 +13,11 @@ private:
     int  editing_msg_id_  = -1;
     char edit_buf_[4001]  = {};
 
+    // Create channel dialog state
+    bool show_create_channel_ = false;
+    int  create_channel_server_id_ = -1;
+    char new_channel_buf_[65] = {};
+
     void process_incoming(AppState& state, WsClient& ws);
     void render_sidebar(AppState& state, HttpClient& http, WsClient& ws);
     void render_messages(AppState& state, WsClient& ws);
