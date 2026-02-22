@@ -247,10 +247,13 @@ static int handle_create_channel(lws* wsi, api::HttpSession* s) {
     if (name.size() > 64)
         return send_error_json(wsi, 400, "channel name too long");
 
+    std::string ch_type = req.value("type", "text");
+    if (ch_type != "text" && ch_type != "voice") ch_type = "text";
+
     if (!db::has_membership(*uid, server_id))
         return send_error_json(wsi, 403, "not a member of this server");
 
-    auto ch = db::create_channel(server_id, name);
+    auto ch = db::create_channel(server_id, name, ch_type);
     if (!ch)
         return send_error_json(wsi, 500, "failed to create channel");
 

@@ -367,13 +367,15 @@ void MainScreen::render_sidebar(AppState& state, HttpClient& http,
     }
 
     // ── Create Channel modal ─────────────────────────────────────────────────
-    ImGui::SetNextWindowSize(ImVec2(320.f, 160.f), ImGuiCond_Always);
+    ImGui::SetNextWindowSize(ImVec2(320.f, 175.f), ImGuiCond_Always);
     ImGui::SetNextWindowPos(ImVec2(io.DisplaySize.x * 0.5f, io.DisplaySize.y * 0.5f),
                             ImGuiCond_Always, ImVec2(0.5f, 0.5f));
     if (ImGui::BeginPopupModal("Create Channel", &show_create_channel_,
                                ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoMove)) {
         ImGui::Text("Channel name:");
         ImGui::SetNextItemWidth(300.f);
+        if (ImGui::IsWindowAppearing())
+            ImGui::SetKeyboardFocusHere(0);
         bool enter = ImGui::InputText("##ch_name", new_channel_buf_,
                                       sizeof(new_channel_buf_),
                                       ImGuiInputTextFlags_EnterReturnsTrue);
