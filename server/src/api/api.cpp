@@ -211,6 +211,7 @@ static int handle_get_messages(lws* wsi, api::HttpSession* s) {
         json o;
         o["id"]         = m.id;
         o["channel_id"] = m.channel_id;
+        o["author_id"]  = m.author_id;
         o["author"]     = m.author_name;
         o["content"]    = m.content;
         o["ts"]         = m.ts;

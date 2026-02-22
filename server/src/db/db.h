@@ -68,7 +68,12 @@ std::vector<Channel> get_server_channels(int server_id);
 // Messages
 // Returns the new message id, or -1 on error.
 int64_t add_message(int channel_id, int author_id, const std::string& content);
-std::vector<Message> get_messages(int channel_id, int limit);
+std::vector<Message>       get_messages(int channel_id, int limit);
+std::optional<Message>     get_message_by_id(int msg_id);
+// Returns true if the message was updated (author matches, age ≤ 7 days).
+bool update_message(int msg_id, int author_id, const std::string& content);
+// Returns true if the message was deleted (author matches, age ≤ 7 days).
+bool delete_message(int msg_id, int author_id);
 
 // Memberships
 bool add_membership(int user_id, int server_id);

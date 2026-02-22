@@ -58,12 +58,93 @@ int main(int /*argc*/, char* /*argv*/[]) {
     io.ConfigFlags |= ImGuiConfigFlags_NavEnableKeyboard;
     io.IniFilename  = nullptr; // no imgui.ini
 
-    ImGui::StyleColorsDark();
+    // ── LCARS / Star Trek theme ──────────────────────────────────────────────
+    ImGui::StyleColorsDark(); // baseline reset
     ImGuiStyle& style = ImGui::GetStyle();
-    style.WindowRounding    = 4.f;
-    style.FrameRounding     = 3.f;
-    style.ScrollbarRounding = 3.f;
-    style.Colors[ImGuiCol_WindowBg] = ImVec4(0.08f, 0.09f, 0.10f, 1.f);
+
+    // Geometry – mostly sharp, a touch of rounding on frames
+    style.WindowRounding    = 2.f;
+    style.ChildRounding     = 2.f;
+    style.FrameRounding     = 2.f;
+    style.PopupRounding     = 2.f;
+    style.ScrollbarRounding = 2.f;
+    style.GrabRounding      = 2.f;
+    style.TabRounding       = 0.f;
+    style.WindowBorderSize  = 1.f;
+    style.FrameBorderSize   = 0.f;
+    style.ItemSpacing       = ImVec2(8.f, 5.f);
+    style.FramePadding      = ImVec2(6.f, 3.f);
+    style.WindowPadding     = ImVec2(8.f, 8.f);
+    style.ScrollbarSize     = 10.f;
+
+    // Palette
+    const ImVec4 bg_deep   (0.04f, 0.07f, 0.12f, 1.f);
+    const ImVec4 bg_mid    (0.07f, 0.11f, 0.18f, 1.f);
+    const ImVec4 bg_lift   (0.10f, 0.16f, 0.26f, 1.f);
+    const ImVec4 amber     (1.00f, 0.60f, 0.00f, 1.f);
+    const ImVec4 amber_hi  (1.00f, 0.76f, 0.15f, 1.f);
+    const ImVec4 amber_lo  (0.85f, 0.44f, 0.00f, 1.f);
+    const ImVec4 cyan      (0.00f, 0.72f, 0.90f, 1.f);
+    const ImVec4 cyan_dim  (0.00f, 0.45f, 0.60f, 0.6f);
+    const ImVec4 txt       (0.90f, 0.95f, 1.00f, 1.f);
+    const ImVec4 txt_dim   (0.50f, 0.62f, 0.74f, 1.f);
+    const ImVec4 border    (0.14f, 0.28f, 0.44f, 1.f);
+    const ImVec4 none      (0.f, 0.f, 0.f, 0.f);
+
+    ImVec4* c = style.Colors;
+    c[ImGuiCol_Text]                  = txt;
+    c[ImGuiCol_TextDisabled]          = txt_dim;
+    c[ImGuiCol_WindowBg]              = bg_deep;
+    c[ImGuiCol_ChildBg]               = bg_mid;
+    c[ImGuiCol_PopupBg]               = ImVec4(0.05f, 0.09f, 0.15f, 0.97f);
+    c[ImGuiCol_Border]                = border;
+    c[ImGuiCol_BorderShadow]          = none;
+    c[ImGuiCol_FrameBg]               = bg_lift;
+    c[ImGuiCol_FrameBgHovered]        = ImVec4(0.14f, 0.22f, 0.36f, 1.f);
+    c[ImGuiCol_FrameBgActive]         = ImVec4(0.18f, 0.28f, 0.44f, 1.f);
+    c[ImGuiCol_TitleBg]               = bg_mid;
+    c[ImGuiCol_TitleBgActive]         = ImVec4(0.06f, 0.10f, 0.20f, 1.f);
+    c[ImGuiCol_TitleBgCollapsed]      = bg_deep;
+    c[ImGuiCol_MenuBarBg]             = bg_mid;
+    c[ImGuiCol_ScrollbarBg]           = bg_mid;
+    c[ImGuiCol_ScrollbarGrab]         = ImVec4(0.90f, 0.55f, 0.00f, 0.60f);
+    c[ImGuiCol_ScrollbarGrabHovered]  = amber;
+    c[ImGuiCol_ScrollbarGrabActive]   = amber_lo;
+    c[ImGuiCol_CheckMark]             = amber;
+    c[ImGuiCol_SliderGrab]            = amber;
+    c[ImGuiCol_SliderGrabActive]      = amber_hi;
+    c[ImGuiCol_Button]                = ImVec4(1.00f, 0.60f, 0.00f, 0.85f);
+    c[ImGuiCol_ButtonHovered]         = amber_hi;
+    c[ImGuiCol_ButtonActive]          = amber_lo;
+    c[ImGuiCol_Header]                = ImVec4(0.00f, 0.55f, 0.72f, 0.45f);
+    c[ImGuiCol_HeaderHovered]         = ImVec4(0.00f, 0.65f, 0.85f, 0.55f);
+    c[ImGuiCol_HeaderActive]          = cyan;
+    c[ImGuiCol_Separator]             = border;
+    c[ImGuiCol_SeparatorHovered]      = cyan_dim;
+    c[ImGuiCol_SeparatorActive]       = cyan;
+    c[ImGuiCol_ResizeGrip]            = ImVec4(1.00f, 0.60f, 0.00f, 0.25f);
+    c[ImGuiCol_ResizeGripHovered]     = amber;
+    c[ImGuiCol_ResizeGripActive]      = amber_hi;
+    c[ImGuiCol_Tab]                   = bg_mid;
+    c[ImGuiCol_TabHovered]            = ImVec4(0.00f, 0.55f, 0.70f, 0.5f);
+    c[ImGuiCol_TabActive]             = ImVec4(0.00f, 0.50f, 0.65f, 1.f);
+    c[ImGuiCol_TabUnfocused]          = bg_deep;
+    c[ImGuiCol_TabUnfocusedActive]    = bg_mid;
+    c[ImGuiCol_PlotLines]             = cyan;
+    c[ImGuiCol_PlotLinesHovered]      = amber;
+    c[ImGuiCol_PlotHistogram]         = cyan;
+    c[ImGuiCol_PlotHistogramHovered]  = amber;
+    c[ImGuiCol_TableHeaderBg]         = bg_mid;
+    c[ImGuiCol_TableBorderStrong]     = border;
+    c[ImGuiCol_TableBorderLight]      = ImVec4(0.10f, 0.18f, 0.28f, 1.f);
+    c[ImGuiCol_TableRowBg]            = none;
+    c[ImGuiCol_TableRowBgAlt]         = ImVec4(0.07f, 0.11f, 0.16f, 0.5f);
+    c[ImGuiCol_TextSelectedBg]        = ImVec4(0.00f, 0.55f, 0.80f, 0.35f);
+    c[ImGuiCol_DragDropTarget]        = amber;
+    c[ImGuiCol_NavHighlight]          = cyan;
+    c[ImGuiCol_NavWindowingHighlight] = amber;
+    c[ImGuiCol_NavWindowingDimBg]     = ImVec4(0.04f, 0.07f, 0.12f, 0.70f);
+    c[ImGuiCol_ModalWindowDimBg]      = ImVec4(0.04f, 0.07f, 0.12f, 0.70f);
 
     ImGui_ImplSDL2_InitForOpenGL(window, gl_ctx);
     ImGui_ImplOpenGL3_Init("#version 330");
@@ -76,7 +157,7 @@ int main(int /*argc*/, char* /*argv*/[]) {
     LoginScreen login_screen;
     MainScreen  main_screen;
 
-    const ImVec4 clear_color(0.06f, 0.07f, 0.08f, 1.f);
+    const ImVec4 clear_color(0.04f, 0.07f, 0.12f, 1.f); // LCARS deep navy
     bool running = true;
 
     // ── Main loop ────────────────────────────────────────────────────────────

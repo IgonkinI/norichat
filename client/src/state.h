@@ -22,6 +22,7 @@ struct ChannelInfo {
 struct MessageInfo {
     int         id         = 0;
     int         channel_id = 0;
+    int         author_id  = 0;
     std::string author;
     std::string content;
     int64_t     ts         = 0;

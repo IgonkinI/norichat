@@ -71,16 +71,12 @@ void LoginScreen::on_auth_success(AppState& state, HttpClient& http,
             } catch (...) {}
         }
 
-        // Auto-join first text channel
+        // Pre-select first channel; CHANNEL_JOIN is deferred to AUTH_OK in process_incoming
         for (auto& ch : state.channels) {
             if (ch.server_id == state.selected_server_id) {
                 state.selected_channel_id = ch.id;
-                json join;
-                join["op"]         = "CHANNEL_JOIN";
-                join["channel_id"] = ch.id;
-                ws.send(join.dump());
 
-                // Load message history
+                // Load message history via REST (real-time will come via WS after AUTH_OK)
                 auto msg_resp = http.get("/api/messages?channel_id=" +
                                          std::to_string(ch.id) + "&limit=50",
                                          state.auth_token);
@@ -92,6 +88,7 @@ void LoginScreen::on_auth_success(AppState& state, HttpClient& http,
                             MessageInfo m;
                             m.id         = o.value("id", 0);
                             m.channel_id = o.value("channel_id", 0);
+                            m.author_id  = o.value("author_id", 0);
                             m.author     = o.value("author", "?");
                             m.content    = o.value("content", "");
                             m.ts         = o.value("ts", (int64_t)0);
@@ -100,7 +97,7 @@ void LoginScreen::on_auth_success(AppState& state, HttpClient& http,
                         state.scroll_to_bottom = true;
                     } catch (...) {}
                 }
-                break; // only join the first channel
+                break;
             }
         }
 

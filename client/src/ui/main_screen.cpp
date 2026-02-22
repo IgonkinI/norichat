@@ -2,6 +2,7 @@
 
 #include <imgui.h>
 #include <nlohmann/json.hpp>
+#include <algorithm>
 #include <cstdio>
 #include <cstring>
 #include <ctime>
@@ -26,7 +27,7 @@ static std::string format_ts(int64_t ts) {
 
 // ─── Incoming WS message processing ──────────────────────────────────────────
 
-void MainScreen::process_incoming(AppState& state) {
+void MainScreen::process_incoming(AppState& state, WsClient& ws) {
     std::deque<std::string> queue;
     {
         std::lock_guard<std::mutex> lk(state.incoming_mutex);
@@ -41,7 +42,7 @@ void MainScreen::process_incoming(AppState& state) {
         std::string op = msg.value("op", "");
 
         if (op == "AUTH_OK") {
-            // Mark online users received in AUTH_OK
+            // Mark already-online users from the snapshot in AUTH_OK
             if (msg.contains("online") && msg["online"].is_array()) {
                 for (auto& u : msg["online"]) {
                     int uid = u.value("user_id", 0);
@@ -55,8 +56,15 @@ void MainScreen::process_incoming(AppState& state) {
                 }
             }
             // Mark self as online
-            for (auto& m : state.members) {
+            for (auto& m : state.members)
                 if (m.id == state.user_id) { m.online = true; break; }
+
+            // Now that AUTH is confirmed by server, join the pre-selected channel
+            if (state.selected_channel_id >= 0) {
+                json join;
+                join["op"]         = "CHANNEL_JOIN";
+                join["channel_id"] = state.selected_channel_id;
+                ws.send(join.dump());
             }
             state.set_status("WebSocket authenticated");
         }
@@ -79,6 +87,7 @@ void MainScreen::process_incoming(AppState& state) {
             MessageInfo m;
             m.id         = msg.value("id", 0);
             m.channel_id = msg.value("channel_id", 0);
+            m.author_id  = msg.value("author_id", 0);
             m.author     = msg.value("author", "?");
             m.content    = msg.value("content", "");
             m.ts         = msg.value("ts", (int64_t)0);
@@ -87,6 +96,28 @@ void MainScreen::process_incoming(AppState& state) {
                 std::lock_guard<std::mutex> lk(state.msg_mutex);
                 state.messages.push_back(m);
                 state.scroll_to_bottom = true;
+            }
+        }
+        else if (op == "MESSAGE_EDITED") {
+            int msg_id       = msg.value("message_id", 0);
+            int ch_id        = msg.value("channel_id", 0);
+            std::string cont = msg.value("content", "");
+            if (ch_id == state.selected_channel_id) {
+                std::lock_guard<std::mutex> lk(state.msg_mutex);
+                for (auto& m : state.messages)
+                    if (m.id == msg_id) { m.content = cont; break; }
+            }
+        }
+        else if (op == "MESSAGE_DELETED") {
+            int msg_id = msg.value("message_id", 0);
+            int ch_id  = msg.value("channel_id", 0);
+            if (ch_id == state.selected_channel_id) {
+                std::lock_guard<std::mutex> lk(state.msg_mutex);
+                auto& msgs = state.messages;
+                msgs.erase(
+                    std::remove_if(msgs.begin(), msgs.end(),
+                        [msg_id](const MessageInfo& m){ return m.id == msg_id; }),
+                    msgs.end());
             }
         }
         else if (op == "AUTH_FAIL" || op == "ERROR") {
@@ -109,7 +140,7 @@ void MainScreen::load_members(AppState& state, HttpClient& http, int server_id) 
             MemberInfo m;
             m.id       = o.value("id", 0);
             m.username = o.value("username", "?");
-            m.online   = (m.id == state.user_id); // self is always online
+            m.online   = (m.id == state.user_id);
             state.members.push_back(m);
         }
     } catch (...) {}
@@ -128,6 +159,7 @@ void MainScreen::load_messages(AppState& state, HttpClient& http, int channel_id
             MessageInfo m;
             m.id         = o.value("id", 0);
             m.channel_id = o.value("channel_id", 0);
+            m.author_id  = o.value("author_id", 0);
             m.author     = o.value("author", "?");
             m.content    = o.value("content", "");
             m.ts         = o.value("ts", (int64_t)0);
@@ -153,9 +185,8 @@ void MainScreen::render_sidebar(AppState& state, HttpClient& http, WsClient& ws)
                  ImGuiWindowFlags_NoMove      |
                  ImGuiWindowFlags_NoScrollbar);
 
-    // Username
-    ImGui::TextColored(ImVec4(0.4f, 0.6f, 1.f, 1.f),
-                       "  %s", state.username.c_str());
+    // Username – cyan accent
+    ImGui::TextColored(ImVec4(0.0f, 0.85f, 1.0f, 1.f), "  %s", state.username.c_str());
     ImGui::Separator();
     ImGui::Spacing();
 
@@ -163,7 +194,7 @@ void MainScreen::render_sidebar(AppState& state, HttpClient& http, WsClient& ws)
         bool is_selected_server = (sv.id == state.selected_server_id);
         ImGui::PushStyleColor(ImGuiCol_Header,
                               is_selected_server
-                              ? ImVec4(0.2f, 0.4f, 0.8f, 0.5f)
+                              ? ImVec4(0.8f, 0.4f, 0.0f, 0.5f)
                               : ImVec4(0, 0, 0, 0));
 
         bool open = ImGui::CollapsingHeader(sv.name.c_str(),
@@ -181,36 +212,29 @@ void MainScreen::render_sidebar(AppState& state, HttpClient& http, WsClient& ws)
                                       ImGuiSelectableFlags_None,
                                       ImVec2(sidebar_w - 16.f, 0))) {
                     if (!sel) {
-                        // Leave old channel
                         if (state.selected_channel_id >= 0) {
                             json leave;
                             leave["op"]         = "CHANNEL_LEAVE";
                             leave["channel_id"] = state.selected_channel_id;
                             ws.send(leave.dump());
                         }
-                        // Join new channel
                         state.selected_channel_id = ch.id;
                         json join;
                         join["op"]         = "CHANNEL_JOIN";
                         join["channel_id"] = ch.id;
                         ws.send(join.dump());
-
-                        // Load history
                         load_messages(state, http, ch.id);
+                        editing_msg_id_ = -1;
                     }
                 }
             }
-        }
-
-        // Load channels when a different server is clicked
-        if (is_selected_server != (sv.id == state.selected_server_id)) {
-            // selection changed – handled below
         }
 
         if (ImGui::IsItemClicked() && sv.id != state.selected_server_id) {
             state.selected_server_id  = sv.id;
             state.selected_channel_id = -1;
             state.messages.clear();
+            editing_msg_id_ = -1;
 
             auto resp = http.get("/api/channels?server_id=" +
                                  std::to_string(sv.id), state.auth_token);
@@ -233,7 +257,7 @@ void MainScreen::render_sidebar(AppState& state, HttpClient& http, WsClient& ws)
 
 // ─── Message list ─────────────────────────────────────────────────────────────
 
-void MainScreen::render_messages(AppState& state) {
+void MainScreen::render_messages(AppState& state, WsClient& ws) {
     ImGuiIO& io = ImGui::GetIO();
     const float sidebar_w  = 220.f;
     const float members_w  = 160.f;
@@ -257,7 +281,8 @@ void MainScreen::render_messages(AppState& state) {
     if (state.selected_channel_id >= 0) {
         for (auto& ch : state.channels)
             if (ch.id == state.selected_channel_id) {
-                ImGui::Text("  # %s", ch.name.c_str());
+                ImGui::TextColored(ImVec4(0.0f, 0.85f, 1.0f, 1.f),
+                                   "  # %s", ch.name.c_str());
                 break;
             }
     } else {
@@ -265,7 +290,7 @@ void MainScreen::render_messages(AppState& state) {
     }
     ImGui::End();
 
-    // Messages
+    // Messages window
     ImGui::SetNextWindowPos(ImVec2(msg_x, msg_y), ImGuiCond_Always);
     ImGui::SetNextWindowSize(ImVec2(msg_w, msg_h), ImGuiCond_Always);
     ImGui::Begin("##messages", nullptr,
@@ -273,25 +298,84 @@ void MainScreen::render_messages(AppState& state) {
                  ImGuiWindowFlags_NoResize   |
                  ImGuiWindowFlags_NoMove);
 
+    // Pending WS actions (collected during render, sent after)
+    int         pending_delete     = -1;
+    int         pending_edit_id    = -1;
+    std::string pending_edit_cont;
+
     if (state.selected_channel_id < 0) {
         ImGui::TextDisabled("Select a channel to start chatting.");
     } else {
         std::lock_guard<std::mutex> lk(state.msg_mutex);
+
         for (auto& m : state.messages) {
-            ImGui::TextColored(ImVec4(0.5f, 0.8f, 1.f, 1.f),
-                               "%s", m.author.c_str());
+            // Author (cyan) + timestamp (dim)
+            ImGui::TextColored(ImVec4(0.0f, 0.85f, 1.0f, 1.f), "%s", m.author.c_str());
             ImGui::SameLine();
-            ImGui::TextDisabled("[%s]", format_ts(m.ts).c_str());
-            ImGui::SameLine();
-            ImGui::TextWrapped("%s", m.content.c_str());
+            ImGui::TextDisabled(" [%s]", format_ts(m.ts).c_str());
+
+            bool own    = (m.author_id == state.user_id);
+            bool recent = ((int64_t)time(nullptr) - m.ts) <= 7LL * 24 * 3600;
+
+            if (editing_msg_id_ == m.id) {
+                // Inline edit field
+                ImGui::SetNextItemWidth(msg_w - 120.f);
+                bool submit = ImGui::InputText("##ed", edit_buf_, sizeof(edit_buf_),
+                                              ImGuiInputTextFlags_EnterReturnsTrue);
+                ImGui::SameLine();
+                submit |= ImGui::SmallButton("OK");
+                ImGui::SameLine();
+                if (ImGui::SmallButton("X")) editing_msg_id_ = -1;
+
+                if (submit && strlen(edit_buf_) > 0) {
+                    pending_edit_id   = m.id;
+                    pending_edit_cont = edit_buf_;
+                    editing_msg_id_   = -1;
+                }
+            } else {
+                ImGui::TextWrapped("%s", m.content.c_str());
+
+                // Right-click context menu for own recent messages
+                if (own && recent) {
+                    std::string popup_id = "##ctx" + std::to_string(m.id);
+                    if (ImGui::IsItemClicked(ImGuiMouseButton_Right))
+                        ImGui::OpenPopup(popup_id.c_str());
+                    if (ImGui::BeginPopup(popup_id.c_str())) {
+                        if (ImGui::MenuItem("Edit")) {
+                            editing_msg_id_ = m.id;
+                            strncpy(edit_buf_, m.content.c_str(), sizeof(edit_buf_) - 1);
+                            edit_buf_[sizeof(edit_buf_) - 1] = '\0';
+                        }
+                        if (ImGui::MenuItem("Delete"))
+                            pending_delete = m.id;
+                        ImGui::EndPopup();
+                    }
+                }
+            }
         }
+
         if (state.scroll_to_bottom) {
             ImGui::SetScrollHereY(1.f);
             state.scroll_to_bottom = false;
         }
-    }
+    } // release msg_mutex
 
     ImGui::End();
+
+    // Send WS actions outside the lock
+    if (pending_delete > 0) {
+        json j;
+        j["op"]         = "MESSAGE_DELETE";
+        j["message_id"] = pending_delete;
+        ws.send(j.dump());
+    }
+    if (pending_edit_id > 0) {
+        json j;
+        j["op"]         = "MESSAGE_EDIT";
+        j["message_id"] = pending_edit_id;
+        j["content"]    = pending_edit_cont;
+        ws.send(j.dump());
+    }
 }
 
 // ─── Message input ────────────────────────────────────────────────────────────
@@ -330,8 +414,6 @@ void MainScreen::render_input(AppState& state, WsClient& ws) {
         msg["content"]    = std::string(input_buf_);
         ws.send(msg.dump());
         input_buf_[0] = '\0';
-
-        // Re-focus the input field
         ImGui::SetKeyboardFocusHere(-1);
     }
 
@@ -355,27 +437,24 @@ void MainScreen::render_members(AppState& state) {
     ImGui::Separator();
     ImGui::Spacing();
 
-    // Online first
     bool printed_online  = false;
     bool printed_offline = false;
     for (auto& m : state.members) {
         if (!m.online) continue;
         if (!printed_online) {
-            ImGui::TextDisabled("  ONLINE");
+            ImGui::TextColored(ImVec4(0.0f, 0.85f, 1.0f, 0.6f), "  ONLINE");
             printed_online = true;
         }
-        ImGui::TextColored(ImVec4(0.3f, 0.9f, 0.3f, 1.f), " * %s", m.username.c_str());
+        ImGui::TextColored(ImVec4(0.2f, 1.0f, 0.5f, 1.f), "  * %s", m.username.c_str());
     }
-
     ImGui::Spacing();
-
     for (auto& m : state.members) {
         if (m.online) continue;
         if (!printed_offline) {
             ImGui::TextDisabled("  OFFLINE");
             printed_offline = true;
         }
-        ImGui::TextDisabled("   %s", m.username.c_str());
+        ImGui::TextDisabled("    %s", m.username.c_str());
     }
 
     ImGui::End();
@@ -384,7 +463,6 @@ void MainScreen::render_members(AppState& state) {
 // ─── Top-level update ─────────────────────────────────────────────────────────
 
 void MainScreen::update(AppState& state, HttpClient& http, WsClient& ws) {
-    // Load members when server changes
     static int last_server_id = -1;
     if (state.selected_server_id != last_server_id) {
         last_server_id = state.selected_server_id;
@@ -392,9 +470,9 @@ void MainScreen::update(AppState& state, HttpClient& http, WsClient& ws) {
             load_members(state, http, state.selected_server_id);
     }
 
-    process_incoming(state);
+    process_incoming(state, ws);
     render_sidebar(state, http, ws);
-    render_messages(state);
+    render_messages(state, ws);
     render_input(state, ws);
     render_members(state);
 }

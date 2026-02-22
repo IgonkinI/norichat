@@ -10,10 +10,12 @@ public:
 
 private:
     char input_buf_[2000] = {};
+    int  editing_msg_id_  = -1;
+    char edit_buf_[4001]  = {};
 
-    void process_incoming(AppState& state);
+    void process_incoming(AppState& state, WsClient& ws);
     void render_sidebar(AppState& state, HttpClient& http, WsClient& ws);
-    void render_messages(AppState& state);
+    void render_messages(AppState& state, WsClient& ws);
     void render_input(AppState& state, WsClient& ws);
     void render_members(AppState& state);
     void load_messages(AppState& state, HttpClient& http, int channel_id);

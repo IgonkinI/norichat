@@ -316,6 +316,58 @@ std::vector<Message> db::get_messages(int channel_id, int limit) {
     return msgs;
 }
 
+std::optional<Message> db::get_message_by_id(int msg_id) {
+    sqlite3_stmt* st = prepare(
+        "SELECT m.id,m.channel_id,m.author_id,u.username,m.content,m.ts "
+        "FROM messages m JOIN users u ON u.id=m.author_id WHERE m.id=?");
+    if (!st) return std::nullopt;
+
+    sqlite3_bind_int(st, 1, msg_id);
+
+    std::optional<Message> result;
+    if (sqlite3_step(st) == SQLITE_ROW) {
+        Message m;
+        m.id          = sqlite3_column_int(st, 0);
+        m.channel_id  = sqlite3_column_int(st, 1);
+        m.author_id   = sqlite3_column_int(st, 2);
+        m.author_name = (const char*)sqlite3_column_text(st, 3);
+        m.content     = (const char*)sqlite3_column_text(st, 4);
+        m.ts          = sqlite3_column_int64(st, 5);
+        result = m;
+    }
+    sqlite3_finalize(st);
+    return result;
+}
+
+bool db::update_message(int msg_id, int author_id, const std::string& content) {
+    sqlite3_stmt* st = prepare(
+        "UPDATE messages SET content=? WHERE id=? AND author_id=? "
+        "AND (CAST(strftime('%s','now') AS INTEGER) - ts) <= 604800");
+    if (!st) return false;
+
+    sqlite3_bind_text(st, 1, content.c_str(), -1, SQLITE_TRANSIENT);
+    sqlite3_bind_int(st, 2, msg_id);
+    sqlite3_bind_int(st, 3, author_id);
+    sqlite3_step(st);
+    int changed = sqlite3_changes(g_db);
+    sqlite3_finalize(st);
+    return changed > 0;
+}
+
+bool db::delete_message(int msg_id, int author_id) {
+    sqlite3_stmt* st = prepare(
+        "DELETE FROM messages WHERE id=? AND author_id=? "
+        "AND (CAST(strftime('%s','now') AS INTEGER) - ts) <= 604800");
+    if (!st) return false;
+
+    sqlite3_bind_int(st, 1, msg_id);
+    sqlite3_bind_int(st, 2, author_id);
+    sqlite3_step(st);
+    int changed = sqlite3_changes(g_db);
+    sqlite3_finalize(st);
+    return changed > 0;
+}
+
 // ─── Memberships ──────────────────────────────────────────────────────────────
 
 bool db::add_membership(int user_id, int server_id) {

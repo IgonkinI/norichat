@@ -109,11 +109,62 @@ static void handle_message_send(lws* wsi, ws::Session& session, const json& msg)
     broadcast["op"]         = OP_MESSAGE_NEW;
     broadcast["id"]         = new_id;
     broadcast["channel_id"] = channel_id;
+    broadcast["author_id"]  = session.user_id;
     broadcast["author"]     = session.username;
     broadcast["content"]    = content;
     broadcast["ts"]         = (int64_t)time(nullptr);
 
     ws::broadcast_to_channel(channel_id, broadcast.dump());
+}
+
+static void handle_message_edit(lws* wsi, ws::Session& session, const json& msg) {
+    int msg_id = msg.value("message_id", 0);
+    std::string content = msg.value("content", "");
+    if (msg_id <= 0 || content.empty()) {
+        send_error(wsi, OP_ERROR, "invalid message_id or empty content");
+        return;
+    }
+    if (content.size() > MAX_MSG_LEN) content.resize(MAX_MSG_LEN);
+
+    auto orig = db::get_message_by_id(msg_id);
+    if (!orig || orig->author_id != session.user_id) {
+        send_error(wsi, OP_ERROR, "message not found or not yours");
+        return;
+    }
+    if (!db::update_message(msg_id, session.user_id, content)) {
+        send_error(wsi, OP_ERROR, "cannot edit: too old or not found");
+        return;
+    }
+
+    json bcast;
+    bcast["op"]         = OP_MESSAGE_EDITED;
+    bcast["message_id"] = msg_id;
+    bcast["channel_id"] = orig->channel_id;
+    bcast["content"]    = content;
+    ws::broadcast_to_channel(orig->channel_id, bcast.dump());
+}
+
+static void handle_message_delete(lws* wsi, ws::Session& session, const json& msg) {
+    int msg_id = msg.value("message_id", 0);
+    if (msg_id <= 0) {
+        send_error(wsi, OP_ERROR, "invalid message_id");
+        return;
+    }
+    auto orig = db::get_message_by_id(msg_id);
+    if (!orig || orig->author_id != session.user_id) {
+        send_error(wsi, OP_ERROR, "message not found or not yours");
+        return;
+    }
+    if (!db::delete_message(msg_id, session.user_id)) {
+        send_error(wsi, OP_ERROR, "cannot delete: too old or not found");
+        return;
+    }
+
+    json bcast;
+    bcast["op"]         = OP_MESSAGE_DELETED;
+    bcast["message_id"] = msg_id;
+    bcast["channel_id"] = orig->channel_id;
+    ws::broadcast_to_channel(orig->channel_id, bcast.dump());
 }
 
 static void dispatch(lws* wsi, ws::Session& session, const std::string& raw) {
@@ -135,10 +186,12 @@ static void dispatch(lws* wsi, ws::Session& session, const std::string& raw) {
         return;
     }
 
-    if      (op == OP_CHANNEL_JOIN)  handle_channel_join(wsi, session, msg);
-    else if (op == OP_CHANNEL_LEAVE) handle_channel_leave(wsi, session, msg);
-    else if (op == OP_MESSAGE_SEND)  handle_message_send(wsi, session, msg);
-    else                             send_error(wsi, OP_ERROR, "unknown op");
+    if      (op == OP_CHANNEL_JOIN)    handle_channel_join(wsi, session, msg);
+    else if (op == OP_CHANNEL_LEAVE)   handle_channel_leave(wsi, session, msg);
+    else if (op == OP_MESSAGE_SEND)    handle_message_send(wsi, session, msg);
+    else if (op == OP_MESSAGE_EDIT)    handle_message_edit(wsi, session, msg);
+    else if (op == OP_MESSAGE_DELETE)  handle_message_delete(wsi, session, msg);
+    else                               send_error(wsi, OP_ERROR, "unknown op");
 }
 
 // ─── lws callback ─────────────────────────────────────────────────────────────

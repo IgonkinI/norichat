@@ -2,18 +2,22 @@
 
 // ─── WebSocket opcodes ────────────────────────────────────────────────────────
 // Client → Server
-#define OP_AUTH           "AUTH"
-#define OP_CHANNEL_JOIN   "CHANNEL_JOIN"
-#define OP_CHANNEL_LEAVE  "CHANNEL_LEAVE"
-#define OP_MESSAGE_SEND   "MESSAGE_SEND"
+#define OP_AUTH             "AUTH"
+#define OP_CHANNEL_JOIN     "CHANNEL_JOIN"
+#define OP_CHANNEL_LEAVE    "CHANNEL_LEAVE"
+#define OP_MESSAGE_SEND     "MESSAGE_SEND"
+#define OP_MESSAGE_EDIT     "MESSAGE_EDIT"
+#define OP_MESSAGE_DELETE   "MESSAGE_DELETE"
 
 // Server → Client
 #define OP_AUTH_OK        "AUTH_OK"
 #define OP_AUTH_FAIL      "AUTH_FAIL"
 #define OP_MESSAGE_NEW    "MESSAGE_NEW"
-#define OP_USER_ONLINE    "USER_ONLINE"
-#define OP_USER_OFFLINE   "USER_OFFLINE"
-#define OP_ERROR          "ERROR"
+#define OP_USER_ONLINE      "USER_ONLINE"
+#define OP_USER_OFFLINE     "USER_OFFLINE"
+#define OP_MESSAGE_EDITED   "MESSAGE_EDITED"
+#define OP_MESSAGE_DELETED  "MESSAGE_DELETED"
+#define OP_ERROR            "ERROR"
 
 // ─── HTTP paths ───────────────────────────────────────────────────────────────
 #define API_REGISTER      "/api/register"
