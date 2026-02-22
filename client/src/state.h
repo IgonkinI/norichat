@@ -34,6 +34,11 @@ struct MemberInfo {
     bool        online = false;
 };
 
+struct VoiceParticipant {
+    int         user_id  = 0;
+    std::string username;
+};
+
 // ─── Application state ────────────────────────────────────────────────────────
 
 struct AppState {
@@ -65,6 +70,10 @@ struct AppState {
     // Pending WS messages (raw JSON strings from the receive thread)
     std::mutex              incoming_mutex;
     std::deque<std::string> incoming_ws;
+
+    // Voice state
+    int                          voice_channel_id = -1; // -1 = not in voice
+    std::vector<VoiceParticipant> voice_participants;
 
     // Status/error message shown in UI
     std::string status_msg;

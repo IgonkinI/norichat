@@ -8,16 +8,24 @@
 #define OP_MESSAGE_SEND     "MESSAGE_SEND"
 #define OP_MESSAGE_EDIT     "MESSAGE_EDIT"
 #define OP_MESSAGE_DELETE   "MESSAGE_DELETE"
+// Voice – Client → Server
+#define OP_VOICE_JOIN       "VOICE_JOIN"
+#define OP_VOICE_LEAVE      "VOICE_LEAVE"
+#define OP_VOICE_DATA       "VOICE_DATA"    // {channel_id, data:<base64 PCM>}
 
 // Server → Client
-#define OP_AUTH_OK        "AUTH_OK"
-#define OP_AUTH_FAIL      "AUTH_FAIL"
-#define OP_MESSAGE_NEW    "MESSAGE_NEW"
+#define OP_AUTH_OK          "AUTH_OK"
+#define OP_AUTH_FAIL        "AUTH_FAIL"
+#define OP_MESSAGE_NEW      "MESSAGE_NEW"
 #define OP_USER_ONLINE      "USER_ONLINE"
 #define OP_USER_OFFLINE     "USER_OFFLINE"
 #define OP_MESSAGE_EDITED   "MESSAGE_EDITED"
 #define OP_MESSAGE_DELETED  "MESSAGE_DELETED"
 #define OP_ERROR            "ERROR"
+// Voice – Server → Client
+#define OP_VOICE_JOIN_OK    "VOICE_JOIN_OK"  // {channel_id, participants:[{user_id,username}]}
+#define OP_VOICE_JOINED     "VOICE_JOINED"   // {channel_id, user_id, username}
+#define OP_VOICE_LEFT       "VOICE_LEFT"     // {channel_id, user_id}
 
 // ─── HTTP paths ───────────────────────────────────────────────────────────────
 #define API_REGISTER      "/api/register"

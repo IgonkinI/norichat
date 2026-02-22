@@ -96,15 +96,25 @@ void WsClient::disconnect() {
 }
 
 void WsClient::send(const std::string& json_msg) {
-    std::lock_guard<std::mutex> lock(send_mutex_);
-    send_queue_.push_back(json_msg);
-    if (wsi_) lws_callback_on_writable(wsi_); // wake service loop
+    {
+        std::lock_guard<std::mutex> lock(send_mutex_);
+        send_queue_.push_back(json_msg);
+    }
+    // lws_cancel_service is the only thread-safe way to wake the service loop
+    // from a thread that isn't the one running lws_service().
+    if (ctx_) lws_cancel_service(ctx_);
 }
 
 // ─── Service loop (background thread) ────────────────────────────────────────
 
 void WsClient::service_thread_fn() {
     while (running_) {
+        // Request writable callback from within the service thread (thread-safe).
+        {
+            std::lock_guard<std::mutex> lock(send_mutex_);
+            if (!send_queue_.empty() && wsi_ && connected_)
+                lws_callback_on_writable(wsi_);
+        }
         lws_service(ctx_, 50); // 50 ms timeout
     }
 }

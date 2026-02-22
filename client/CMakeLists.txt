@@ -80,6 +80,19 @@ elseif (CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
     target_compile_options(imgui_lib PRIVATE -w)
 endif()
 
+# ─── miniaudio – single-header audio library ─────────────────────────────────
+FetchContent_Declare(
+    miniaudio
+    GIT_REPOSITORY https://github.com/mackron/miniaudio.git
+    GIT_TAG        master
+    GIT_SHALLOW    TRUE
+)
+FetchContent_GetProperties(miniaudio)
+if (NOT miniaudio_POPULATED)
+    FetchContent_Populate(miniaudio)
+endif()
+# miniaudio has no CMakeLists; we only need its include directory.
+
 # ─── libwebsockets – static, no TLS (always FetchContent) ────────────────────
 set(LWS_WITH_SSL            OFF CACHE BOOL "" FORCE)
 set(LWS_WITH_SHARED         OFF CACHE BOOL "" FORCE)
@@ -139,6 +152,8 @@ set(CLIENT_SOURCES
     src/main.cpp
     src/net/http_client.cpp
     src/net/ws_client.cpp
+    src/net/voice_client.cpp
+    src/net/miniaudio_impl.cpp
     src/ui/login_screen.cpp
     src/ui/main_screen.cpp
 )
@@ -151,6 +166,7 @@ target_include_directories(norichat_client PRIVATE
     # lws headers – websockets_static may not export INTERFACE includes on MSVC
     ${libwebsockets_SOURCE_DIR}/include
     ${libwebsockets_BINARY_DIR}   # lws_config.h is generated here
+    ${miniaudio_SOURCE_DIR}       # miniaudio.h
 )
 
 target_link_libraries(norichat_client PRIVATE

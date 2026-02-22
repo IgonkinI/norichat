@@ -167,6 +167,65 @@ static void handle_message_delete(lws* wsi, ws::Session& session, const json& ms
     ws::broadcast_to_channel(orig->channel_id, bcast.dump());
 }
 
+// ─── Voice handlers ───────────────────────────────────────────────────────────
+
+static void handle_voice_join(lws* wsi, ws::Session& session, const json& msg) {
+    int channel_id = msg.value("channel_id", 0);
+    if (channel_id <= 0) { send_error(wsi, OP_ERROR, "invalid channel_id"); return; }
+
+    session.voice_channels.insert(channel_id);
+
+    // Build current participant list for the joining client
+    json participants = json::array();
+    for (auto& [other_wsi, other_sess] : g_sessions) {
+        if (other_sess.authed && other_wsi != wsi &&
+            other_sess.voice_channels.count(channel_id)) {
+            json p;
+            p["user_id"]  = other_sess.user_id;
+            p["username"] = other_sess.username;
+            participants.push_back(p);
+        }
+    }
+    json ok;
+    ok["op"]           = OP_VOICE_JOIN_OK;
+    ok["channel_id"]   = channel_id;
+    ok["participants"] = participants;
+    enqueue(wsi, ok.dump());
+
+    // Notify others already in voice that a new participant joined
+    json notify;
+    notify["op"]         = OP_VOICE_JOINED;
+    notify["channel_id"] = channel_id;
+    notify["user_id"]    = session.user_id;
+    notify["username"]   = session.username;
+    ws::broadcast_to_voice(channel_id, notify.dump(), wsi);
+}
+
+static void handle_voice_leave(lws* wsi, ws::Session& session, const json& msg) {
+    int channel_id = msg.value("channel_id", 0);
+    session.voice_channels.erase(channel_id);
+
+    json notify;
+    notify["op"]         = OP_VOICE_LEFT;
+    notify["channel_id"] = channel_id;
+    notify["user_id"]    = session.user_id;
+    ws::broadcast_to_voice(channel_id, notify.dump(), wsi);
+}
+
+static void handle_voice_data(lws* wsi, ws::Session& session, const json& msg) {
+    int channel_id = msg.value("channel_id", 0);
+    std::string data = msg.value("data", "");
+    if (channel_id <= 0 || data.empty()) return;
+    if (!session.voice_channels.count(channel_id)) return; // must have joined first
+
+    json relay;
+    relay["op"]         = OP_VOICE_DATA;
+    relay["channel_id"] = channel_id;
+    relay["user_id"]    = session.user_id;
+    relay["data"]       = data;
+    ws::broadcast_to_voice(channel_id, relay.dump(), wsi); // relay to all other participants
+}
+
 static void dispatch(lws* wsi, ws::Session& session, const std::string& raw) {
     json msg;
     try {
@@ -191,6 +250,9 @@ static void dispatch(lws* wsi, ws::Session& session, const std::string& raw) {
     else if (op == OP_MESSAGE_SEND)    handle_message_send(wsi, session, msg);
     else if (op == OP_MESSAGE_EDIT)    handle_message_edit(wsi, session, msg);
     else if (op == OP_MESSAGE_DELETE)  handle_message_delete(wsi, session, msg);
+    else if (op == OP_VOICE_JOIN)      handle_voice_join(wsi, session, msg);
+    else if (op == OP_VOICE_LEAVE)     handle_voice_leave(wsi, session, msg);
+    else if (op == OP_VOICE_DATA)      handle_voice_data(wsi, session, msg);
     else                               send_error(wsi, OP_ERROR, "unknown op");
 }
 
@@ -210,7 +272,7 @@ static int ws_callback(lws* wsi, lws_callback_reasons reason,
         auto it = g_sessions.find(wsi);
         if (it != g_sessions.end()) {
             if (it->second.authed) {
-                // Notify remaining sessions that this user went offline
+                // Notify remaining sessions of user going offline
                 json notify;
                 notify["op"]      = OP_USER_OFFLINE;
                 notify["user_id"] = it->second.user_id;
@@ -218,6 +280,14 @@ static int ws_callback(lws* wsi, lws_callback_reasons reason,
                 for (auto& [other_wsi, other_sess] : g_sessions) {
                     if (other_sess.authed && other_wsi != wsi)
                         enqueue(other_wsi, notify_json);
+                }
+                // Notify voice channels that user left
+                for (int ch_id : it->second.voice_channels) {
+                    json vleft;
+                    vleft["op"]         = OP_VOICE_LEFT;
+                    vleft["channel_id"] = ch_id;
+                    vleft["user_id"]    = it->second.user_id;
+                    ws::broadcast_to_voice(ch_id, vleft.dump(), wsi);
                 }
             }
             g_sessions.erase(it);
@@ -281,6 +351,17 @@ static int ws_callback(lws* wsi, lws_callback_reasons reason,
 void ws::broadcast_to_channel(int channel_id, const std::string& json_msg) {
     for (auto& [wsi, session] : g_sessions) {
         if (session.authed && session.subscribed_channels.count(channel_id)) {
+            session.write_queue.push_back(json_msg);
+            lws_callback_on_writable(wsi);
+        }
+    }
+}
+
+void ws::broadcast_to_voice(int channel_id, const std::string& json_msg,
+                            lws* exclude_wsi) {
+    for (auto& [wsi, session] : g_sessions) {
+        if (wsi == exclude_wsi) continue;
+        if (session.authed && session.voice_channels.count(channel_id)) {
             session.write_queue.push_back(json_msg);
             lws_callback_on_writable(wsi);
         }

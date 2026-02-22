@@ -12,6 +12,7 @@
 #include "state.h"
 #include "net/http_client.h"
 #include "net/ws_client.h"
+#include "net/voice_client.h"
 #include "ui/login_screen.h"
 #include "ui/main_screen.h"
 
@@ -154,6 +155,7 @@ int main(int /*argc*/, char* /*argv*/[]) {
     std::unique_ptr<HttpClient> http =
         std::make_unique<HttpClient>(state.server_host, state.server_port);
     WsClient    ws;
+    VoiceClient voice;
     LoginScreen login_screen;
     MainScreen  main_screen;
 
@@ -211,7 +213,7 @@ int main(int /*argc*/, char* /*argv*/[]) {
             login_screen.render(state, *http, ws);
             break;
         case AppState::Screen::Main:
-            main_screen.update(state, *http, ws);
+            main_screen.update(state, *http, ws, voice);
             break;
         }
 
@@ -228,6 +230,7 @@ int main(int /*argc*/, char* /*argv*/[]) {
     }
 
     // ── Cleanup ──────────────────────────────────────────────────────────────
+    voice.stop();
     ws.disconnect();
 
     ImGui_ImplOpenGL3_Shutdown();

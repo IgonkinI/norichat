@@ -36,17 +36,18 @@ void LoginScreen::on_auth_success(AppState& state, HttpClient& http,
     state.user_id    = user_id;
     state.username   = username;
 
+    // Set up WS message → incoming queue BEFORE connecting to avoid a race
+    // between the background service thread starting and the callback being set.
+    ws.set_on_message([&state](const std::string& msg) {
+        std::lock_guard<std::mutex> lk(state.incoming_mutex);
+        state.incoming_ws.push_back(msg);
+    });
+
     // Connect WebSocket
     if (!ws.connect(state.server_host, state.server_port, token)) {
         state.set_status("Server online but WebSocket failed", true);
         return;
     }
-
-    // Set up WS message → incoming queue
-    ws.set_on_message([&state](const std::string& msg) {
-        std::lock_guard<std::mutex> lk(state.incoming_mutex);
-        state.incoming_ws.push_back(msg);
-    });
 
     // Load initial server list
     load_servers(state, http);
